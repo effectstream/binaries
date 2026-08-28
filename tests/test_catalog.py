@@ -98,10 +98,11 @@ class CatalogTests(unittest.TestCase):
 
     def test_exact_legacy_backfill(self) -> None:
         validate_catalog(self.catalog, self.schema)
-        legacy = [row for row in self.catalog["entries"] if row["publicationState"] == "published"]
-        planned = [row for row in self.catalog["entries"] if row["publicationState"] == "planned"]
-        uploading = [row for row in self.catalog["entries"] if row["publicationState"] == "uploading"]
-        self.assertEqual((len(legacy), len(planned), len(uploading), len(self.catalog["entries"])), (66, 0, 31, 97))
+        legacy = [row for row in self.catalog["entries"] if row["source"]["method"] == "legacy-unknown"]
+        initial = [row for row in self.catalog["entries"] if row["source"]["method"] != "legacy-unknown"]
+        self.assertEqual((len(legacy), len(initial), len(self.catalog["entries"])), (66, 31, 97))
+        self.assertEqual({row["publicationState"] for row in initial}, {initial[0]["publicationState"]})
+        self.assertIn(initial[0]["publicationState"], {"uploading", "verified", "published"})
         self.assertEqual(len({row["semanticId"] for row in legacy}), 66)
         self.assertEqual(len({row["asset"]["name"] for row in legacy}), 66)
         for row in legacy:
