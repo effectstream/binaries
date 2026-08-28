@@ -1,0 +1,73 @@
+name: Release drift
+
+run-name: Release drift (${{ github.event_name }})
+
+on:
+  schedule:
+    - cron: "17 7 * * *"
+  workflow_dispatch:
+    inputs:
+      simulate_failure:
+        description: Exercise the owner notification and acknowledgement path
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-drift-read-only
+  cancel-in-progress: false
+
+jobs:
+  drift:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SIMULATE_FAILURE: ${{ inputs.simulate_failure || 'false' }}
+    steps:
+      - name: Check out the reviewed checker
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Prove the workflow token is read-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          permission_json="$(gh api repos/effectstream/binaries --jq '.permissions')"
+          jq -e '
+            .pull == true and
+            .push == false and
+            .maintain == false and
+            .admin == false
+          ' <<<"$permission_json" >/dev/null
+
+      - name: Check the permanent development release
+        shell: bash
+        run: scripts/check-release-drift.sh --repo effectstream/binaries --release 0.3.120 --expected-asset-count 66
+
+      - name: Simulate a visible failure
+        if: env.SIMULATE_FAILURE == 'true'
+        shell: bash
+        run: |
+          echo 'Owner acknowledgement exercise requested; failing without any repository or release write.' >&2
+          exit 42
+
+      - name: Publish owner acknowledgement instructions
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## Release drift heartbeat'
+            echo
+            echo "- Repository: effectstream/binaries"
+            echo "- Release: 0.3.120"
+            echo "- Workflow run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "- Conclusion: inspect the job conclusion above; the workflow has no write permission."
+            echo
+            echo 'On failure, `acedward` acknowledges this run by inspecting the retained summary, records the run ID/time, then follows the README enable → dispatch → fresh-success sequence.'
+          } >>"$GITHUB_STEP_SUMMARY"
+
