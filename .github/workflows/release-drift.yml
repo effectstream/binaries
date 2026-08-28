@@ -37,11 +37,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          viewer_permission="$(gh api graphql \
-            -f query='query { repository(owner: "effectstream", name: "binaries") { viewerPermission } }' \
-            --jq '.data.repository.viewerPermission')"
-          test "$viewer_permission" = READ
           gh api repos/effectstream/binaries/releases/tags/0.3.120 --jq '.id' >/dev/null
+          probe_ref="refs/heads/actions-readonly-probe-${GITHUB_RUN_ID}"
+          set +e
+          probe_output="$(gh api -X POST repos/effectstream/binaries/git/refs \
+            -f ref="$probe_ref" \
+            -f sha="$GITHUB_SHA" 2>&1)"
+          probe_rc=$?
+          set -e
+          if [[ $probe_rc -eq 0 ]]; then
+            echo 'ERROR: contents write unexpectedly succeeded; repository owner must remove the probe ref.' >&2
+            exit 1
+          fi
+          grep -F 'Resource not accessible by integration' <<<"$probe_output" >/dev/null
+          if gh api "repos/effectstream/binaries/git/ref/heads/actions-readonly-probe-${GITHUB_RUN_ID}" >/dev/null 2>&1; then
+            echo 'ERROR: rejected write probe nevertheless created a ref.' >&2
+            exit 1
+          fi
 
       - name: Check the permanent development release
         shell: bash
