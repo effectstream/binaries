@@ -42,7 +42,7 @@
       "family": "indexer-standalone",
       "nameTemplate": "indexer-standalone-{os}-{arch}-v{version}.zip",
       "archive": "zip",
-      "members": ["indexer-standalone-{version}"],
+      "members": ["indexer-standalone-{os}-{arch}-v{version}"],
       "installMode": "0755"
     },
     {

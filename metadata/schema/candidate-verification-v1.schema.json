@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/effectstream/binaries/metadata/schema/candidate-verification-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "verifiedAt", "result", "testOnly", "protocolCommit", "protocolManifestSha256", "forge", "componentPolicy", "candidate", "envelopeSha256", "bundleSha256", "liveEvidenceSha256", "contentIdentitySha256"],
+  "properties": {
+    "schemaVersion": {"const": "candidate-verification-v1"},
+    "verifiedAt": {"type": "string", "format": "date-time"},
+    "result": {"const": "pass"},
+    "testOnly": {"type": "boolean"},
+    "protocolCommit": {"const": "2052e6e3d47495b8404876092d34e7bcbd560690"},
+    "protocolManifestSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "forge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["origin", "head", "clean"],
+      "properties": {
+        "origin": {"enum": ["git@github.com:acedward/midnight-binary-forge.git", "https://github.com/acedward/midnight-binary-forge.git", "https://github.com/acedward/midnight-binary-forge"]},
+        "head": {"const": "2052e6e3d47495b8404876092d34e7bcbd560690"},
+        "clean": {"const": true}
+      }
+    },
+    "componentPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["origin", "issuerCommit", "minimumCommit", "manifestSha256", "clean", "minimumAncestorVerified", "exactPinnedBlobs"],
+      "properties": {
+        "origin": {"enum": ["git@github.com:acedward/midnight-binary-forge.git", "https://github.com/acedward/midnight-binary-forge.git", "https://github.com/acedward/midnight-binary-forge"]},
+        "issuerCommit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "minimumCommit": {"const": "ddd2838d0226eeaaca8f7a42ad82cba1a132bbfe"},
+        "manifestSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "clean": {"const": true},
+        "minimumAncestorVerified": {"const": true},
+        "exactPinnedBlobs": {"const": true}
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "tag", "releaseId", "releaseNodeId", "claimsDigest"],
+      "properties": {
+        "repository": {"const": "acedward/midnight-binary-forge"},
+        "tag": {"type": "string", "minLength": 1},
+        "releaseId": {"type": "integer", "minimum": 1},
+        "releaseNodeId": {"type": "string", "minLength": 1},
+        "claimsDigest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "envelopeSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "bundleSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "liveEvidenceSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "contentIdentitySha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"}
+  }
+}

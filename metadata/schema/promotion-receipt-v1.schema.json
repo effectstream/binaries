@@ -3,7 +3,7 @@
   "$id": "https://github.com/effectstream/binaries/metadata/schema/promotion-receipt-v1.schema.json",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "createdAt", "repository", "releaseTag", "releaseId", "authority", "candidateEnvelopeSha256", "candidateAssetListSha256", "proposalSha256", "intendedReleaseBodySha256", "snapshotSha256", "snapshotIdentitySha256", "snapshot", "candidateAssets", "preflight", "state", "requiredConfirmationPrefix", "residualRace"],
+  "required": ["schemaVersion", "createdAt", "repository", "releaseTag", "releaseId", "authority", "publisherPrerequisiteSha256", "publisherPrerequisite", "candidateVerificationSha256", "candidateVerification", "candidateEnvelopeSha256", "candidateEnvelopeBytesBase64", "candidateAssetListSha256", "candidateAssetManifest", "proposalSha256", "proposal", "intendedReleaseBodySha256", "intendedReleaseBodyBytesBase64", "snapshotSha256", "snapshotIdentitySha256", "snapshot", "candidateAssets", "preflight", "state", "requiredConfirmationPrefix", "residualRace"],
   "properties": {
     "schemaVersion": {"const": "promotion-receipt-v1"},
     "createdAt": {"type": "string", "format": "date-time"},
@@ -11,17 +11,71 @@
     "releaseTag": {"const": "0.3.120"},
     "releaseId": {"const": 270761136},
     "authority": {"type": "string", "minLength": 3},
+    "publisherPrerequisiteSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "publisherPrerequisite": {"$ref": "publisher-prerequisite-v1.schema.json"},
+    "candidateVerificationSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "candidateVerification": {"$ref": "candidate-verification-v1.schema.json"},
     "candidateEnvelopeSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "candidateEnvelopeBytesBase64": {"type": "string", "minLength": 4, "pattern": "^[A-Za-z0-9+/]*={0,2}$"},
     "candidateAssetListSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "candidateAssetManifest": {"$ref": "#/$defs/candidateManifest"},
     "proposalSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "proposal": {"$ref": "warehouse-proposal-v1.schema.json"},
     "intendedReleaseBodySha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "intendedReleaseBodyBytesBase64": {"type": "string", "minLength": 4, "pattern": "^[A-Za-z0-9+/]*={0,2}$"},
     "snapshotSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "snapshotIdentitySha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "snapshot": {"$ref": "release-snapshot-v1.schema.json"},
-    "candidateAssets": {"type": "array", "items": {"type": "object", "required": ["name", "size", "sha256"]}},
-    "preflight": {"type": "object"},
+    "candidateAssets": {"$ref": "#/$defs/candidateAssets"},
+    "preflight": {"$ref": "#/$defs/preflight"},
     "state": {"const": "planned"},
     "requiredConfirmationPrefix": {"const": "UPLOAD effectstream/binaries 0.3.120"},
     "residualRace": {"type": "string", "minLength": 1}
+  },
+  "$defs": {
+    "candidateAsset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "size", "sha256"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "size": {"type": "integer", "minimum": 0},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "candidateAssets": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/candidateAsset"}},
+    "candidateManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "assets"],
+      "properties": {
+        "schemaVersion": {"const": "candidate-assets-v1"},
+        "assets": {"$ref": "#/$defs/candidateAssets"}
+      }
+    },
+    "preflightRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "candidateSha256", "currentSha256", "disposition"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "candidateSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "currentSha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "disposition": {"enum": ["absent", "identical-noop", "conflict"]}
+      }
+    },
+    "preflight": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "candidateCount", "absentCount", "identicalCount", "conflictCount", "rows"],
+      "properties": {
+        "schemaVersion": {"const": "complete-conflict-report-v1"},
+        "candidateCount": {"type": "integer", "minimum": 1},
+        "absentCount": {"type": "integer", "minimum": 0},
+        "identicalCount": {"type": "integer", "minimum": 0},
+        "conflictCount": {"const": 0},
+        "rows": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/preflightRow"}}
+      }
+    }
   }
 }

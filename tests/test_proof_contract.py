@@ -8,44 +8,65 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from warehouse_lib import WarehouseError, load_json, resolve_catalog, validate_catalog  # noqa: E402
+from warehouse_lib import WarehouseError, ledger_member_manifest, load_json, resolve_catalog, validate_catalog  # noqa: E402
 
 
-def proof_entry(*, k: int | None = None, semver: str | None = None, manifest: str = "a" * 64, name: str | None = None, generation: str | None = None) -> dict:
+CONTRACT = load_json(ROOT / "metadata/contracts/proof-data-q8b-v1.json")
+
+
+def proof_entry(*, k: int | None = None, semver: str | None = None, name: str | None = None, generation: str | None = None, correction_seed: str | None = None) -> dict:
     if k is not None:
-        generation = generation or (
-            "midnight-ledger-provider-compat@7a89f45d29792be7e09ca5eb246f1e69f0b2a179/sha256:59b30b3114a34ccbbfb599376e178fb8d9b3366cae2174c2f1da20e75847f823"
-            if k == 0 else "midnight-trusted-setup@3ea610263b228af24840f7b00661ee22360db6d8"
-        )
+        pinned = CONTRACT["srs"]["objects"][k]
+        generation = generation or pinned["srsGeneration"]
         asset_name = name or f"bls_midnight_2p{k}"
+        literal = asset_name == pinned["assetName"]
+        digest = pinned["sha256"] if literal else generation.removeprefix("sha256:")
+        size = pinned["bytes"] if literal else 7
         proof = {
             "kind": "srs", "k": k, "srsGeneration": generation,
-            "officialAlias": None if k == 0 else f"midnight-srs-2p{k}",
+            "officialAlias": pinned["officialAlias"],
             "cacheAlias": f"bls_midnight_2p{k}", "installedPath": f"bls_midnight_2p{k}",
             "installedMode": "0644", "exactConsumers": exact_consumers(),
         }
         semantic = f"srs/{k}/{generation.replace('@', '-').replace(':', '-')}"
+        members = [{"path": proof["installedPath"], "type": "file", "size": size, "sha256": digest, "storedMode": "0644", "installMode": "0644"}]
+        source_repo = CONTRACT["srs"]["providerRepository"] if k == 0 else CONTRACT["srs"]["trustedSetupRepository"]
+        source_commit = CONTRACT["srs"]["providerCommit"] if k == 0 else CONTRACT["srs"]["trustedSetupCommit"]
     else:
         assert semver
-        asset_name = name or f"midnight-ledger-static-noarch-{semver}.zip"
+        members = [
+            {"path": row["path"], "type": "file", "size": row["bytes"], "sha256": row["sha256"], "storedMode": "0644", "installMode": "0644"}
+            for row in CONTRACT["ledgerStatic"]["members"]
+        ]
+        if correction_seed:
+            members[0]["sha256"] = correction_seed * 64
+        manifest = ledger_member_manifest(members)
+        asset_name = name or (
+            f"midnight-ledger-static-noarch-{semver}-manifest-sha256-{manifest}.zip"
+            if correction_seed else f"midnight-ledger-static-noarch-{semver}.zip"
+        )
         proof = {
             "kind": "ledger-static", "ledgerStaticSemver": semver, "cacheNamespace": "9",
             "memberManifestSha256": manifest, "ledgerStaticRevision": f"manifest-sha256:{manifest}",
             "installedPath": ".", "installedMode": "0644", "exactConsumers": exact_consumers(),
         }
         semantic = f"ledger-static/{semver}/{manifest}"
+        digest = (correction_seed or "c") * 64
+        size = 1
+        source_repo = "midnightntwrk/midnight-ledger"
+        source_commit = CONTRACT["srs"]["providerCommit"]
     return {
         "semanticId": semantic, "artifactKind": "proof-data", "family": "midnight-srs" if k is not None else "midnight-ledger-static",
         "variant": None, "platform": "noarch", "publicationState": "published",
         "distributionTier": "development-only", "releaseMutability": "mutable-warehouse",
-        "asset": {"id": 999, "nodeId": "RA_fixture", "name": asset_name, "state": "uploaded", "size": 1,
-                  "apiDigest": "sha256:" + "c" * 64, "sha256": "c" * 64,
+        "asset": {"id": 999, "nodeId": "RA_fixture", "name": asset_name, "state": "uploaded", "size": size,
+                  "apiDigest": "sha256:" + digest, "sha256": digest,
                   "apiUrl": "https://api.github.com/repos/effectstream/binaries/releases/assets/999",
                   "downloadUrl": f"https://github.com/effectstream/binaries/releases/download/0.3.120/{asset_name}",
                   "contentType": "application/octet-stream", "createdAt": "2026-08-28T00:00:00Z", "updatedAt": "2026-08-28T00:00:00Z"},
-        "archive": {"format": "raw" if k is not None else "zip", "memberCount": 1, "expandedSize": 1,
-                    "members": [{"path": asset_name, "type": "file", "size": 1, "storedMode": "0644", "installMode": "0644"}], "legacyAnomalies": []},
-        "source": {"method": "assemble-data", "repository": "midnightntwrk/midnight-ledger", "commitSha": "7a89f45d29792be7e09ca5eb246f1e69f0b2a179", "license": "Apache-2.0", "redistributionEvidence": "LICENSE@commit"},
+        "archive": {"format": "raw" if k is not None else "zip", "memberCount": len(members), "expandedSize": sum(row["size"] for row in members),
+                    "members": members, "legacyAnomalies": []},
+        "source": {"method": "assemble-data", "repository": source_repo, "commitSha": source_commit, "license": "Apache-2.0", "redistributionEvidence": "LICENSE@commit"},
         "evidence": {"sourceManifest": "forge", "checksums": "forge", "provenance": "forge", "sbom": None, "memberLineage": "forge"},
         "proofData": proof, "legacyProvenance": "known",
     }
@@ -89,28 +110,52 @@ class ProofContractTests(unittest.TestCase):
         result = resolve_catalog(base, family=None, version=None, os_name=None, arch=None, variant=None, k=5, srs_generation="sha256:" + "d" * 64, ledger_static=None, member_manifest=None)
         self.assertEqual(result["assetName"], generation_2["asset"]["name"])
 
-        first = proof_entry(semver="9.0.0", manifest="a" * 64)
-        second = proof_entry(semver="9.0.0", manifest="b" * 64, name="midnight-ledger-static-noarch-9.0.0-manifest-sha256-" + "b" * 64 + ".zip")
+        blocked_normal = proof_entry(semver="9.0.0")
+        blocked_catalog = load_json(ROOT / "metadata/releases/0.3.120.json")
+        blocked_catalog["entries"].append(blocked_normal)
+        with self.assertRaisesRegex(WarehouseError, "blocked until Phase-3p"):
+            validate_catalog(blocked_catalog, ROOT / "metadata/schema/artifact-catalog-v1.schema.json")
+
+        first = proof_entry(semver="9.0.0", correction_seed="a")
+        second = proof_entry(semver="9.0.0", correction_seed="b")
         second["asset"]["id"] = 1001
         second["asset"]["nodeId"] = "RA_fixture_3"
         second["asset"]["apiUrl"] = "https://api.github.com/repos/effectstream/binaries/releases/assets/1001"
-        second["asset"]["sha256"] = "e" * 64
-        second["asset"]["apiDigest"] = "sha256:" + "e" * 64
         another = load_json(ROOT / "metadata/releases/0.3.120.json")
         another["entries"].extend([first, second])
         validate_catalog(another, ROOT / "metadata/schema/artifact-catalog-v1.schema.json")
         with self.assertRaisesRegex(WarehouseError, "Ledger-static"):
             resolve_catalog(another, family=None, version=None, os_name=None, arch=None, variant=None, k=None, srs_generation=None, ledger_static="9.0.0", member_manifest=None)
-        result = resolve_catalog(another, family=None, version=None, os_name=None, arch=None, variant=None, k=None, srs_generation=None, ledger_static="9.0.0", member_manifest="b" * 64)
+        result = resolve_catalog(another, family=None, version=None, os_name=None, arch=None, variant=None, k=None, srs_generation=None, ledger_static="9.0.0", member_manifest=second["proofData"]["memberManifestSha256"])
         self.assertEqual(result["assetName"], second["asset"]["name"])
 
     def test_static10_cannot_claim_static9(self) -> None:
         base = load_json(ROOT / "metadata/releases/0.3.120.json")
-        invalid = proof_entry(semver="9.0.0")
+        invalid = proof_entry(semver="9.0.0", correction_seed="d")
         invalid["proofData"]["exactConsumers"][0]["ledgerStaticSemver"] = "10.0.0"
         base["entries"].append(invalid)
         with self.assertRaises(WarehouseError):
             validate_catalog(base)
+
+    def test_literal_q8b_rows_reject_identity_and_tree_mutations(self) -> None:
+        for entry in [proof_entry(k=1), proof_entry(semver="9.0.0", correction_seed="e")]:
+            base = load_json(ROOT / "metadata/releases/0.3.120.json")
+            base["entries"].append(entry)
+            validate_catalog(base, ROOT / "metadata/schema/artifact-catalog-v1.schema.json")
+            identity_mutation = (
+                (lambda row: row["asset"].update({"size": row["asset"]["size"] + 1}))
+                if entry["proofData"]["kind"] == "srs"
+                else (lambda row: row["archive"].update({"expandedSize": row["archive"]["expandedSize"] + 1}))
+            )
+            for mutate in [
+                identity_mutation,
+                lambda row: row["archive"]["members"][0].update({"sha256": "f" * 64}),
+                lambda row: row["proofData"]["exactConsumers"][0].update({"sourceCommit": "f" * 40}),
+            ]:
+                invalid = copy.deepcopy(base)
+                mutate(invalid["entries"][-1])
+                with self.assertRaises(WarehouseError):
+                    validate_catalog(invalid, ROOT / "metadata/schema/artifact-catalog-v1.schema.json")
 
 
 if __name__ == "__main__":

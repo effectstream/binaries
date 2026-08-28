@@ -468,12 +468,27 @@ def parse_software_name(name: str) -> tuple[str, str, str, str, str | None]:
     raise WarehouseError(f"asset does not follow a recognized software family: {name}")
 
 
-def find_install(inspection: dict[str, Any]) -> tuple[str, str]:
+def install_matches_family(path: str, family: str) -> bool:
+    basename = PurePosixPath(path).name
+    return {
+        "avail-node": basename.startswith("avail-node"),
+        "celestia-appd": basename == "celestia-appd",
+        "celestia-node": basename == "celestia",
+        "indexer-standalone": basename.startswith("indexer-standalone"),
+        "midnight-node": basename.startswith("midnight-node"),
+        "midnight-node-toolkit": basename == "midnight-node-toolkit",
+        "midnight-proof-server": basename.startswith("midnight-proof-server"),
+    }.get(family, False)
+
+
+def find_install(inspection: dict[str, Any], family: str) -> tuple[str, str]:
     executable = [
         row for row in inspection["members"]
-        if row["type"] == "file" and row["installMode"] == "0755"
+        if row["type"] == "file"
+        and row["installMode"] == "0755"
+        and install_matches_family(row["path"], family)
     ]
-    expect(executable, "archive has no recognizable installed executable")
+    expect(executable, f"archive has no recognizable {family} installed executable")
     return executable[0]["path"], executable[0]["installMode"]
 
 
@@ -484,7 +499,7 @@ def catalog_from_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
         expect("inspection" in asset, f"snapshot lacks archive inspection for {asset['name']}")
         family, os_name, arch, version, variant = parse_software_name(asset["name"])
         platform = f"{os_name}/{arch}"
-        install_path, mode = find_install(asset["inspection"])
+        install_path, mode = find_install(asset["inspection"], family)
         signing = None
         if os_name == "macos":
             signing = {
@@ -570,6 +585,138 @@ def stable_index(catalog: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def expected_q8b_consumers(contract: dict[str, Any]) -> list[dict[str, Any]]:
+    positive = contract["exactCompatibility"]["positive"]
+    return [
+        {
+            "proofServerVersion": positive["proofServerVersion"],
+            "sourceCommit": positive["sourceCommit"],
+            "imageDigest": digest,
+            "ledgerStaticSemver": positive["ledgerStaticSemver"],
+            "cacheNamespace": positive["cacheNamespace"],
+        }
+        for digest in positive["imageDigests"]
+    ]
+
+
+def ledger_member_manifest(members: list[dict[str, Any]]) -> str:
+    rows = [
+        {
+            "path": row["path"],
+            "bytes": row["size"],
+            "sha256": row["sha256"],
+            "mode": row["installMode"],
+        }
+        for row in sorted(members, key=lambda item: item["path"])
+    ]
+    return canonical_sha256({"schemaVersion": "ledger-static-member-manifest-v1", "members": rows})
+
+
+def validate_archive_invariants(entry: dict[str, Any]) -> None:
+    asset = entry["asset"]
+    archive = entry["archive"]
+    members = archive["members"]
+    expect(archive["memberCount"] == len(members), "archive memberCount mismatch")
+    expect(archive["expandedSize"] == sum(row["size"] for row in members), "archive expandedSize mismatch")
+    names = [row["path"] for row in members]
+    expect(len(names) == len(set(names)), "duplicate archive member path")
+    for row in members:
+        name = row["path"]
+        expect("\x00" not in name and not name.startswith("/"), "unsafe absolute/NUL archive member")
+        expect(".." not in PurePosixPath(name).parts, "unsafe traversal archive member")
+        expect(row["type"] != "symlink", "archive symlink member is forbidden")
+
+    name = asset["name"]
+    if name.endswith(".tar.gz"):
+        expect(archive["format"] == "tar.gz", "archive format/outer suffix mismatch")
+    elif name.endswith(".zip"):
+        expect(archive["format"] == "zip", "archive format/outer suffix mismatch")
+    else:
+        expect(entry["artifactKind"] == "proof-data" and archive["format"] == "raw", "raw archive format required")
+
+    if entry["artifactKind"] == "software":
+        install = entry["install"]
+        installed = [row for row in members if row["path"] == install["path"] and row["type"] == "file"]
+        expect(len(installed) == 1, "install path must name exactly one archive file")
+        expect(install["mode"] == "0755" and installed[0]["installMode"] == "0755", "software install mode mismatch")
+        family = entry["family"]
+        expect(install_matches_family(install["path"], family), "install path does not match software family")
+
+
+def validate_q8b_entry(entry: dict[str, Any], contract: dict[str, Any]) -> None:
+    proof = entry["proofData"]
+    asset = entry["asset"]
+    archive = entry["archive"]
+    expected_consumers = expected_q8b_consumers(contract)
+    expect(proof["exactConsumers"] == expected_consumers, "proof-data exact compatibility mismatch")
+    if proof["kind"] == "srs":
+        k = proof["k"]
+        pinned = next((row for row in contract["srs"]["objects"] if row["k"] == k), None)
+        expect(pinned is not None, "SRS K is outside the exact reviewed Q8=B inventory")
+        literal = asset["name"] == pinned["assetName"]
+        if literal:
+            expect(asset["size"] == pinned["bytes"] and asset["sha256"] == pinned["sha256"], "literal SRS byte identity mismatch")
+            expect(
+                proof["installedPath"] == pinned["installedPath"]
+                and proof["cacheAlias"] == pinned["installedPath"]
+                and proof.get("officialAlias") == pinned["officialAlias"]
+                and proof["srsGeneration"] == pinned["srsGeneration"],
+                "literal SRS alias/generation mismatch",
+            )
+            expect(
+                archive["format"] == "raw"
+                and archive["memberCount"] == 1
+                and archive["expandedSize"] == pinned["bytes"]
+                and archive["members"] == [{
+                    "path": pinned["installedPath"], "type": "file", "size": pinned["bytes"],
+                    "sha256": pinned["sha256"], "storedMode": contract["srs"]["mode"],
+                    "installMode": contract["srs"]["mode"],
+                }],
+                "literal SRS raw member contract mismatch",
+            )
+            expected_repo = contract["srs"]["providerRepository"] if k == 0 else contract["srs"]["trustedSetupRepository"]
+            expected_commit = contract["srs"]["providerCommit"] if k == 0 else contract["srs"]["trustedSetupCommit"]
+            expect(entry["source"]["repository"] == expected_repo and entry["source"]["commitSha"] == expected_commit, "literal SRS source mismatch")
+        else:
+            member = archive["members"]
+            expect(
+                archive["format"] == "raw"
+                and len(member) == 1
+                and member[0]["path"] == proof["installedPath"]
+                and member[0].get("sha256") == asset["sha256"]
+                and member[0]["size"] == asset["size"]
+                and member[0]["storedMode"] == "0644"
+                and member[0]["installMode"] == "0644",
+                "generation-qualified SRS member mismatch",
+            )
+    else:
+        pinned = contract["ledgerStatic"]
+        expected_paths = {row["path"] for row in pinned["members"]}
+        observed_paths = {row["path"] for row in archive["members"]}
+        expect(observed_paths == expected_paths and len(archive["members"]) == len(expected_paths), "Ledger-static exact 12-member tree mismatch")
+        expect(all(row["type"] == "file" and row["storedMode"] == pinned["mode"] and row["installMode"] == pinned["mode"] and re.fullmatch(r"[0-9a-f]{64}", row.get("sha256", "")) for row in archive["members"]), "Ledger-static member hash/mode mismatch")
+        computed_manifest = ledger_member_manifest(archive["members"])
+        expect(proof["memberManifestSha256"] == computed_manifest, "Ledger-static member manifest mismatch")
+        normal_name = pinned["assetName"]
+        if asset["name"] == normal_name:
+            expect(isinstance(pinned.get("memberManifestSha256"), str), "normal Ledger-static is blocked until Phase-3p member manifest is pinned")
+            expect(isinstance(pinned.get("archiveSha256"), str) and isinstance(pinned.get("archiveBytes"), int), "normal Ledger-static archive identity is not pinned")
+            expected_members = {
+                row["path"]: (row["bytes"], row["sha256"], pinned["mode"])
+                for row in pinned["members"]
+            }
+            observed_members = {
+                row["path"]: (row["size"], row["sha256"], row["installMode"])
+                for row in archive["members"]
+            }
+            expect(observed_members == expected_members, "normal Ledger-static member bytes differ from Q8=B")
+            expect(proof["memberManifestSha256"] == pinned["memberManifestSha256"], "normal Ledger-static contract digest mismatch")
+            expect(asset["sha256"] == pinned["archiveSha256"] and asset["size"] == pinned["archiveBytes"], "normal Ledger-static archive bytes mismatch")
+        else:
+            correction = f"midnight-ledger-static-noarch-{proof['ledgerStaticSemver']}-manifest-sha256-{computed_manifest}.zip"
+            expect(asset["name"] == correction and proof.get("ledgerStaticRevision") == f"manifest-sha256:{computed_manifest}", "Ledger-static correction name/revision mismatch")
+
+
 def validate_catalog(catalog: dict[str, Any], schema_path: Path | None = None) -> None:
     if schema_path:
         try:
@@ -583,6 +730,9 @@ def validate_catalog(catalog: dict[str, Any], schema_path: Path | None = None) -
 
     expect(catalog.get("schemaVersion") == "artifact-catalog-v1", "wrong catalog schema")
     expect(catalog.get("warning") == WARNING, "required development warning mismatch")
+    expect(catalog.get("repository") == {"fullName": REPOSITORY, "id": REPOSITORY_ID, "nodeId": REPOSITORY_NODE_ID}, "catalog repository identity mismatch")
+    expect(catalog.get("release") == {"tag": RELEASE_TAG, "id": RELEASE_ID, "nodeId": RELEASE_NODE_ID, "url": RELEASE_URL, "mutable": True}, "catalog release identity mismatch")
+    proof_contract = load_json(ROOT / "metadata/contracts/proof-data-q8b-v1.json")
     seen_ids: set[str] = set()
     seen_names: set[str] = set()
     seen_tuples: set[tuple[Any, ...]] = set()
@@ -597,6 +747,8 @@ def validate_catalog(catalog: dict[str, Any], schema_path: Path | None = None) -
         expect("legacyLocations" not in entry, "legacyLocations is forbidden")
         expect(entry["asset"]["downloadUrl"].startswith(f"https://github.com/{REPOSITORY}/releases/download/{RELEASE_TAG}/"), "non-canonical release URL")
         expect(entry["asset"]["apiDigest"] == f"sha256:{entry['asset']['sha256']}", "API/download digest disagreement")
+        expect(entry["asset"]["apiUrl"] == f"https://api.github.com/repos/{REPOSITORY}/releases/assets/{entry['asset']['id']}", "asset API ID/URL mismatch")
+        expect(entry["asset"]["downloadUrl"] == f"https://github.com/{REPOSITORY}/releases/download/{RELEASE_TAG}/{name}", "asset download basename mismatch")
         expect(entry["distributionTier"] == "development-only", "wrong distribution tier")
         expect(entry["releaseMutability"] == "mutable-warehouse", "wrong release mutability")
         expect(entry["publicationState"] in STATES, "invalid publication state")
@@ -618,10 +770,29 @@ def validate_catalog(catalog: dict[str, Any], schema_path: Path | None = None) -
             expect(isinstance(source.get("upstreamAssetName"), str) and source["upstreamAssetName"], "exact upstream asset name required")
             expect(isinstance(source.get("upstreamAssetSize"), int) and source["upstreamAssetSize"] >= 0, "exact upstream asset size required")
             expect(re.fullmatch(r"[0-9a-f]{64}", source.get("upstreamAssetSha256", "")) is not None, "exact upstream asset digest required")
+        if source["method"] == "identity-mirror":
+            expect(source["upstreamAssetName"] == name, "identity-mirror must retain exact upstream name")
+            expect(source["upstreamAssetSize"] == entry["asset"]["size"], "identity-mirror size differs from upstream")
+            expect(source["upstreamAssetSha256"] == entry["asset"]["sha256"], "identity-mirror digest differs from upstream")
+            expect("renameMapping" not in source, "identity-mirror cannot carry a rename mapping")
+        elif source["method"] == "rename-only":
+            expect(source["upstreamAssetSize"] == entry["asset"]["size"], "rename-only size differs from upstream")
+            expect(source["upstreamAssetSha256"] == entry["asset"]["sha256"], "rename-only digest differs from upstream")
+            expect(source.get("renameMapping") == {"from": source["upstreamAssetName"], "to": name}, "rename-only exact old/new mapping required")
+            expect(source["upstreamAssetName"] != name, "rename-only must actually rename")
+        elif source["method"] == "repackage":
+            expect("renameMapping" not in source, "repackage cannot masquerade as rename-only")
+        validate_archive_invariants(entry)
         if entry["artifactKind"] == "software":
             parsed = parse_software_name(name)
             expected = (entry["family"], entry["os"], entry["arch"], entry["version"], entry.get("variant"))
             expect(parsed == expected, f"family filename mismatch: {name}")
+            expect(entry["platform"] == f"{entry['os']}/{entry['arch']}", "software platform/os/arch mismatch")
+            expect(("signing" in entry) == (entry["os"] == "macos"), "signing metadata presence must match macOS platform")
+            expected_semantic = f"{entry['family']}/{entry['version']}/{entry['os']}/{entry['arch']}"
+            if entry.get("variant"):
+                expected_semantic += f"/{entry['variant']}"
+            expect(semantic == expected_semantic, "software semanticId mismatch")
             tuple_key = ("software", entry["family"], entry["version"], entry["os"], entry["arch"], entry.get("variant"))
         else:
             expect(entry["platform"] == "noarch", "proof data must be noarch")
@@ -640,6 +811,8 @@ def validate_catalog(catalog: dict[str, Any], schema_path: Path | None = None) -
                 else:
                     correction = re.fullmatch(rf"midnight-srs-noarch-2p{k}-(ts-[0-9a-f]{{40}}|provider-[0-9a-f]{{40}}-sha256-[0-9a-f]{{64}}|sha256-[0-9a-f]{{64}})[.]bin", name)
                     expect(correction is not None, "changed same-K data requires full generation-qualified name")
+                expected_semantic = f"srs/{k}/{proof['srsGeneration'].replace('@', '-').replace(':', '-')}"
+                expect(semantic == expected_semantic, "SRS semanticId mismatch")
             elif proof["kind"] == "ledger-static":
                 semver = proof["ledgerStaticSemver"]
                 manifest = proof["memberManifestSha256"]
@@ -650,12 +823,24 @@ def validate_catalog(catalog: dict[str, Any], schema_path: Path | None = None) -
                     expect(proof.get("ledgerStaticRevision") == f"manifest-sha256:{manifest}", "same-semver correction revision mismatch")
                 for consumer in proof["exactConsumers"]:
                     expect(consumer["ledgerStaticSemver"] == semver and consumer["cacheNamespace"] == proof["cacheNamespace"], "static data/consumer version mismatch")
+                expect(semantic == f"ledger-static/{semver}/{manifest}", "Ledger-static semanticId mismatch")
+            validate_q8b_entry(entry, proof_contract)
             tuple_key = ("proof-data", proof["kind"], proof.get("k"), proof.get("srsGeneration"), proof.get("ledgerStaticSemver"), proof.get("memberManifestSha256"))
         expect(tuple_key not in seen_tuples, f"duplicate semantic tuple: {tuple_key}")
         seen_tuples.add(tuple_key)
 
 
 def resolve_catalog(catalog: dict[str, Any], *, family: str | None, version: str | None, os_name: str | None, arch: str | None, variant: str | None, k: int | None, srs_generation: str | None, ledger_static: str | None, member_manifest: str | None) -> dict[str, Any]:
+    software_present = any(value is not None for value in [family, version, os_name, arch, variant])
+    srs_present = k is not None or srs_generation is not None
+    static_present = ledger_static is not None or member_manifest is not None
+    expect(sum([software_present, srs_present, static_present]) == 1, "resolution requires exactly one mutually exclusive software, SRS, or Ledger-static selector mode")
+    if software_present:
+        expect(all(value is not None for value in [family, version, os_name, arch]), "software resolution requires family/version/os/arch")
+    elif srs_present:
+        expect(k is not None, "SRS resolution requires K when an SRS generation is supplied")
+    else:
+        expect(ledger_static is not None, "Ledger-static resolution requires semver when a member manifest is supplied")
     aliases_os = {"darwin": "macos", "osx": "macos", "linux": "linux", "macos": "macos"}
     aliases_arch = {"x86_64": "amd64", "x64": "amd64", "aarch64": "arm64", "amd64": "amd64", "arm64": "arm64"}
     if os_name:
@@ -681,7 +866,6 @@ def resolve_catalog(catalog: dict[str, Any], *, family: str | None, version: str
             expect(re.fullmatch(r"[0-9a-f]{64}", member_manifest) is not None, "member manifest selector must be a full SHA-256")
             rows = [entry for entry in rows if entry["proofData"]["memberManifestSha256"] == member_manifest]
     else:
-        expect(all([family, version, os_name, arch]), "software resolution requires family/version/os/arch")
         rows = [entry for entry in rows if entry["artifactKind"] == "software" and entry["family"] == family and entry["version"] == version and entry["os"] == os_name and entry["arch"] == arch and entry.get("variant") == variant]
     expect(len(rows) == 1, f"resolution requires exactly one published match; observed {len(rows)}")
     entry = rows[0]
@@ -717,6 +901,28 @@ def validate_transition(before: str, after: str) -> None:
     expect(before in STATE_TRANSITIONS and after in STATE_TRANSITIONS[before], f"invalid publication transition {before}->{after}")
 
 
+def validate_repository_state(
+    catalog: dict[str, Any], index: dict[str, Any], previous_catalog: dict[str, Any]
+) -> None:
+    expect(index == stable_index(catalog), "committed stable index differs from deterministic published catalog projection")
+    previous = {entry["semanticId"]: entry for entry in previous_catalog["entries"]}
+    current = {entry["semanticId"]: entry for entry in catalog["entries"]}
+    expect(set(previous) <= set(current), "append-only catalog cannot delete prior semantic IDs")
+    for semantic, before in previous.items():
+        after = current[semantic]
+        before_state = before["publicationState"]
+        after_state = after["publicationState"]
+        if before_state != after_state:
+            validate_transition(before_state, after_state)
+        immutable_before = json.loads(json.dumps(before))
+        immutable_after = json.loads(json.dumps(after))
+        immutable_before.pop("publicationState")
+        immutable_after.pop("publicationState")
+        expect(immutable_before == immutable_after, f"append-only catalog bytes/identity changed for {semantic}")
+    for semantic in set(current) - set(previous):
+        expect(current[semantic]["publicationState"] == "planned", f"new catalog row must enter at planned state: {semantic}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
@@ -735,6 +941,9 @@ def main() -> int:
     validate = sub.add_parser("validate")
     validate.add_argument("--catalog", type=Path, default=ROOT / "metadata/releases/0.3.120.json")
     validate.add_argument("--schema", type=Path, default=ROOT / "metadata/schema/artifact-catalog-v1.schema.json")
+    validate.add_argument("--index", type=Path, default=ROOT / "metadata/index.json")
+    validate.add_argument("--previous-catalog", type=Path)
+    validate.add_argument("--baseline-snapshot", type=Path, default=ROOT / "metadata/baselines/0.3.120-initial.json")
 
     resolve = sub.add_parser("resolve")
     resolve.add_argument("--catalog", type=Path, default=ROOT / "metadata/releases/0.3.120.json")
@@ -770,6 +979,12 @@ def main() -> int:
         elif args.command == "validate":
             catalog = load_json(args.catalog)
             validate_catalog(catalog, args.schema)
+            previous = (
+                load_json(args.previous_catalog)
+                if args.previous_catalog
+                else catalog_from_snapshot(load_json(args.baseline_snapshot))
+            )
+            validate_repository_state(catalog, load_json(args.index), previous)
             print(f"PASS catalog entries={len(catalog['entries'])}")
         elif args.command == "resolve":
             result = resolve_catalog(load_json(args.catalog), family=args.family, version=args.version, os_name=args.os_name, arch=args.arch, variant=args.variant, k=args.k, srs_generation=args.srs_generation, ledger_static=args.ledger_static, member_manifest=args.member_manifest_sha256)

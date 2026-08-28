@@ -30,6 +30,7 @@ class PrerequisiteTests(unittest.TestCase):
         gh = bin_dir / "gh"
         gh.write_text(textwrap.dedent(f"""\
             #!/bin/sh
+            if [ "$1" = "--version" ]; then echo 'gh version fixture'; exit 0; fi
             if [ "$1 $2 $3" = "auth status --hostname" ]; then exit 0; fi
             if [ "$1 $2 $3 $4" = "api user --jq .login" ]; then echo acedward; exit 0; fi
             if [ "$1 $2" = "api repos/effectstream/binaries" ]; then
@@ -43,13 +44,15 @@ class PrerequisiteTests(unittest.TestCase):
         gh.chmod(0o755)
         return checkout, bin_dir, head
 
-    def run_probe(self, checkout: Path, bin_dir: Path, head: str, account: str = "acedward") -> subprocess.CompletedProcess[str]:
+    def run_probe(self, checkout: Path, bin_dir: Path, head: str, account: str = "acedward", output: Path | None = None) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env["PATH"] = f"{bin_dir}:{env['PATH']}"
+        if output is None:
+            output = checkout.parent / f"prerequisite-{account}-{head}.json"
         return subprocess.run(
             [str(ROOT / "scripts/check-manual-publisher-prereqs.sh"),
              "--repo", "effectstream/binaries", "--account", account, "--release", "0.3.120",
-             "--reviewed-head", head, "--authority-ref", "owner-approval-fixture"],
+             "--reviewed-head", head, "--authority-ref", "owner-approval-fixture", "--output", str(output)],
             cwd=checkout, env=env, text=True, capture_output=True,
         )
 
@@ -58,6 +61,11 @@ class PrerequisiteTests(unittest.TestCase):
             checkout, bin_dir, head = self.make_fixture(Path(temporary))
             result = self.run_probe(checkout, bin_dir, head)
             self.assertEqual(result.returncode, 0, result.stderr)
+            record_path = Path(temporary) / f"prerequisite-acedward-{head}.json"
+            record = json.loads(record_path.read_text())
+            self.assertEqual(record["schemaVersion"], "publisher-prerequisite-v1")
+            self.assertTrue(record["effectiveWrite"])
+            self.assertEqual(record_path.stat().st_mode & 0o777, 0o600)
             self.assertIn("repository_id=1117580582", result.stdout)
             self.assertIn("release_id=270761136", result.stdout)
             self.assertNotIn("token", (result.stdout + result.stderr).lower())

@@ -18,14 +18,28 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - name: Install pinned validation dependency
         run: python3 -m pip install --disable-pip-version-check -r requirements-ci.txt
 
       - name: Validate catalog and clean-room/manual fixtures
+        env:
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           set -euo pipefail
-          scripts/validate-catalog
+          previous_args=()
+          base_sha="$EVENT_BASE_SHA"
+          if [[ -z "$base_sha" || "$base_sha" =~ ^0+$ ]]; then
+            base_sha="$(git rev-parse HEAD^ 2>/dev/null || true)"
+          fi
+          if [[ -n "$base_sha" ]] && git cat-file -e "$base_sha:metadata/releases/0.3.120.json" 2>/dev/null; then
+            previous_catalog="$(mktemp)"
+            trap 'rm -f -- "$previous_catalog"' EXIT
+            git show "$base_sha:metadata/releases/0.3.120.json" >"$previous_catalog"
+            previous_args=(--previous-catalog "$previous_catalog")
+          fi
+          scripts/validate-catalog "${previous_args[@]}"
           python3 -m unittest discover -s tests -v
 
       - name: Consume the exact audited forge protocol fixture
@@ -34,15 +48,21 @@ jobs:
         run: |
           set -euo pipefail
           forge_dir="$(mktemp -d)"
-          trap 'rm -rf -- "$forge_dir"' EXIT
+          component_dir="$(mktemp -d)"
+          trap 'rm -rf -- "$forge_dir" "$component_dir"' EXIT
           git -c credential.helper= clone --quiet --filter=blob:none \
             https://github.com/acedward/midnight-binary-forge.git "$forge_dir"
           git -C "$forge_dir" checkout --quiet 2052e6e3d47495b8404876092d34e7bcbd560690
+          git -c credential.helper= clone --quiet --filter=blob:none \
+            https://github.com/acedward/midnight-binary-forge.git "$component_dir"
+          git -C "$component_dir" checkout --quiet ddd2838d0226eeaaca8f7a42ad82cba1a132bbfe
           scripts/verify-candidate --test-noncryptographic-fixture \
             --forge-checkout "$forge_dir" \
+            --forge-component-checkout "$component_dir" \
             --envelope "$forge_dir/tests/fixtures/envelope/promotion-envelope-fixture-1.json" \
             --bundle "$forge_dir/tests/fixtures/envelope/attestation-fixture-1.sigstore.json" \
-            --live-evidence "$forge_dir/tests/fixtures/envelope/live-valid.json"
+            --live-evidence "$forge_dir/tests/fixtures/envelope/live-valid.json" \
+            --output "$forge_dir/candidate-verification.json"
 
       - name: Prove no destination release-write workflow exists
         run: python3 tests/test_workflow_policy.py

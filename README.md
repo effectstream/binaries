@@ -33,7 +33,7 @@ Canonical operating-system tokens are `linux|macos`; canonical architectures are
 | Avail | `avail-node-{os}-{arch}-v{version}.tar.gz` | Existing exceptions are cataloged; new executable installs `0755` |
 | Celestia app | `celestia-appd-{os}-{arch}-v{version}.tar.gz` | `LICENSE`, `README.md`, `celestia-appd`; executable `0755` |
 | Celestia node | `celestia-node-{os}-{arch}-v{version}.tar.gz` | `LICENSE`, `README.md`, `celestia`; executable `0755` |
-| Indexer | `indexer-standalone-{os}-{arch}-v{version}.zip` | one root versioned executable, stored/installed `0755` |
+| Indexer | `indexer-standalone-{os}-{arch}-v{version}.zip` | exactly one root executable named `indexer-standalone-{os}-{arch}-v{version}` (the archive basename without `.zip`), stored/installed `0755` |
 | Midnight node | `midnight-node-{os}-{arch}-{version}.zip` | root versioned executable plus `res/` |
 | Midnight node toolkit | `midnight-node-toolkit-{os}-{arch}-{version}.zip` | exactly one root `midnight-node-toolkit`, stored/installed `0755` |
 | Proof-server executable | `midnight-proof-server-{os}-{arch}-{version}.zip` | one root versioned executable; new publication is deferred |
@@ -99,7 +99,7 @@ The following sequence is mandatory and ordered. Candidate bytes are inert: neve
 
 1. Obtain explicit live-upload authority naming the repo/release/candidate. Record a non-secret authority reference. Fetch the reviewed warehouse PR, confirm the exact full commit SHA, clean worktree, and exact `origin`.
 2. Confirm GitHub host/account/effective write permission and exact repo/release numeric+node identities. Authentication reports are suppressed to avoid credential metadata.
-3. Independently verify the allowlisted immutable forge repository/workflow/ref/full SHA, candidate release/tag/ID/node ID/immutable state, canonical envelope, source manifest, checksums, staging asset-list digest, raw attestation bundle, and every inert asset size/digest. The warehouse consumes the pinned audited forge implementation in [`protocol/forge-promotion-envelope-v1.json`](protocol/forge-promotion-envelope-v1.json); it does not redefine canonicalization.
+3. Independently verify the allowlisted immutable forge repository/workflow/ref/full SHA, candidate release/tag/ID/node ID/immutable state, canonical envelope, source manifest, checksums, staging asset-list digest, raw attestation bundle, and every inert asset size/digest. The warehouse consumes the exact audited promotion implementation pinned by [`protocol/forge-promotion-envelope-v1.json`](protocol/forge-promotion-envelope-v1.json) and separately requires the candidate issuer to contain or descend from the independently audited component-policy remediation pinned by [`protocol/forge-component-policy-v1.json`](protocol/forge-component-policy-v1.json). The exact remediated component/build schemas and validator blobs must also match that second pin. The warehouse does not redefine forge canonicalization, and a pre-remediation, unrelated, dirty, or regressed issuer is rejected.
 4. Capture the complete FR-039 snapshot through all pages. It binds repository/release/body identities plus every legacy asset ID/node ID/name/state/size/API and independent download digest/API URL/download URL/content type/timestamps. A partial name-only inventory is invalid.
 5. Run complete-set zero-write preflight. It reports every absent, identical no-op, and conflicting candidate name. Any conflict creates no release write, journal, catalog state, or stable index change.
 6. Bind explicit authority, exact proposal, canonical candidate/envelope/list, complete snapshot hash, and intended warning-body digest into a mode-`0600` receipt. Type the exact receipt-hash confirmation.
@@ -114,19 +114,23 @@ Commands (values are deliberately explicit; no credential value is an argument):
 REVIEWED_HEAD=0123456789abcdef0123456789abcdef01234567
 AUTHORITY_REF=owner-approval-reference
 FORGE_CHECKOUT=/absolute/read-only/path/to/midnight-binary-forge
+FORGE_COMPONENT_CHECKOUT=/absolute/read-only/path/to/candidate-issuer/midnight-binary-forge
 CANDIDATE_DIR=/absolute/private/mode-0700/candidate
 RECEIPT_DIR=/absolute/private/mode-0700/receipts
 
 scripts/check-manual-publisher-prereqs.sh \
   --repo effectstream/binaries --account acedward --release 0.3.120 \
-  --reviewed-head "$REVIEWED_HEAD" --authority-ref "$AUTHORITY_REF"
+  --reviewed-head "$REVIEWED_HEAD" --authority-ref "$AUTHORITY_REF" \
+  --output "$RECEIPT_DIR/prerequisite.json"
 
 scripts/verify-candidate \
   --forge-checkout "$FORGE_CHECKOUT" \
+  --forge-component-checkout "$FORGE_COMPONENT_CHECKOUT" \
   --envelope "$CANDIDATE_DIR/promotion-envelope-initial-31-v1.json" \
   --bundle "$CANDIDATE_DIR/attestation-initial-31-v1.sigstore.json" \
   --live-evidence "$CANDIDATE_DIR/promotion-live-evidence-initial-31-v1.json" \
-  --content-dir "$CANDIDATE_DIR/content"
+  --content-dir "$CANDIDATE_DIR/content" \
+  --output "$RECEIPT_DIR/candidate-verification.json"
 
 scripts/snapshot-0.3.120 --output "$RECEIPT_DIR/preflight-snapshot.json" \
   --independent-downloads
@@ -138,6 +142,9 @@ scripts/preflight-upload \
   --snapshot "$RECEIPT_DIR/preflight-snapshot.json" \
   --candidate-envelope "$CANDIDATE_DIR/promotion-envelope-initial-31-v1.json" \
   --authority "$AUTHORITY_REF" \
+  --prerequisite-record "$RECEIPT_DIR/prerequisite.json" \
+  --candidate-verification-record "$RECEIPT_DIR/candidate-verification.json" \
+  --forge-component-checkout "$FORGE_COMPONENT_CHECKOUT" \
   --intended-release-body metadata/templates/release-body.md \
   --receipt "$RECEIPT_DIR/receipt.json" \
   --report "$RECEIPT_DIR/conflicts.json"
@@ -149,6 +156,7 @@ scripts/upload-0.3.120 \
   --candidate-manifest "$CANDIDATE_DIR/candidate-assets.json" \
   --journal "$RECEIPT_DIR/journal.json" \
   --confirm 'UPLOAD effectstream/binaries 0.3.120 <exact-full-receipt-sha256>' \
+  --forge-component-checkout "$FORGE_COMPONENT_CHECKOUT" \
   --execute
 
 scripts/verify-release --receipt "$RECEIPT_DIR/receipt.json" \
@@ -156,16 +164,16 @@ scripts/verify-release --receipt "$RECEIPT_DIR/receipt.json" \
 scripts/check-drift
 ```
 
-The candidate-envelope and intended-body digests are always computed from the exact verified files; no operator-supplied digest can substitute them. Keep receipt/journal directories outside Git at `0700`; receipt/journal files are atomically written and fsynced at `0600`. Retain a sanitized final receipt/journal as audit evidence, never authentication output or response headers that may reveal credential metadata.
+The prerequisite and candidate-verification records are canonical, mode-`0600`, and digest-bound into the receipt. Preflight and upload repeat the live checkout/account/repository/release/component-policy checks so a record captured in an earlier state cannot authorize a later state. The candidate-envelope and intended-body digests are always computed from the exact verified files; no operator-supplied digest can substitute them. Keep receipt/journal directories outside Git at `0700`; receipt/journal files are atomically written and fsynced at `0600`. Retain a sanitized final receipt/journal as audit evidence, never authentication output or response headers that may reveal credential metadata.
 
 ## 7. Executable examples and clean-room fixture
 
-CI executes the resolver example above and [`tests/test_clean_room.py`](tests/test_clean_room.py) using only README-linked files. The fixture adds a new-family proposal, one future K proposal, and one Ledger-static revision; proves authority/checkout/identity/permission/candidate/inert-byte/redaction/journal/TOCTOU/stable-last behavior; and rejects every undocumented or ambiguous step. README changes that disagree with schema, resolver, names, or scripts fail CI.
+CI executes the resolver example above and [`tests/test_clean_room.py`](tests/test_clean_room.py) using only README-linked contracts, schemas, proposals, metadata, templates, and scripts. The clean-room fixtures execute the exact proposal/preflight receipt boundary and stable resolver, validate the bound prerequisite/component-policy records, exercise future-K rejection and same-semver Ledger-static correction resolution, and prove an unreviewed family-contract edit remains fail-closed until its parser/schema/install/test changes land together. Their direct negatives cover Compact/count drift and mixed or ambiguous selectors. The companion manual-transaction fixtures exercise the live prerequisite and component-policy gates and reject stale or cross-state prerequisite evidence, pre-remediation/unrelated/regressed component issuers, foreign release drift, and unsafe continuation. README changes that disagree with these executable surfaces fail CI.
 
 ## 8. Conflict, interruption, revocation, and drift
 
 - Identical existing name+size+digest is a no-op. A same name with different bytes is a hard conflict; never replace it.
-- After interruption, run `scripts/reconcile-upload` with the receipt and a fresh full snapshot. Resume only exact same-candidate absent names. Foreign bytes or changed legacy fields hard-stop.
+- After interruption, run `scripts/reconcile-upload` with the receipt and a fresh full snapshot. If and only if it reports the exact same-receipt candidate additions plus absent names and zero foreign/repository/release/body/pagination/legacy drift, repeat the same `scripts/upload-0.3.120` command with `--resume`. The existing mode-`0600` journal and exact receipt hash preserve lineage. A fresh transaction uses a new snapshot, prerequisite/candidate records, receipt, and journal. Foreign bytes or changed legacy fields hard-stop.
 - A revoked artifact remains in the release/catalog as evidence, changes to `revoked`, disappears from stable resolution, and gets a reviewed incident advisory. A corrected new version/name is appended only after that PR.
 - Consumer digest rejection is immediate. The daily read-only workflow provides best-effort detection within 24 hours plus GitHub delay. GitHub may disable schedules after 60 inactive days, so `acedward` runs the heartbeat at least weekly and before every upload or demo. Schedule-stop detection is bounded only by that check.
 

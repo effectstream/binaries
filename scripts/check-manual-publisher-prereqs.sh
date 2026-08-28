@@ -7,10 +7,11 @@ account=""
 release=""
 reviewed_head=""
 authority_ref=""
+output=""
 
 usage() {
   cat <<'EOF'
-Usage: scripts/check-manual-publisher-prereqs.sh --repo OWNER/REPO --account LOGIN --release TAG --reviewed-head FULL_SHA --authority-ref REFERENCE
+Usage: scripts/check-manual-publisher-prereqs.sh --repo OWNER/REPO --account LOGIN --release TAG --reviewed-head FULL_SHA --authority-ref REFERENCE --output RECORD.json
 
 Read-only prerequisite probe. It never uploads, edits a release, or prints auth material.
 EOF
@@ -36,6 +37,10 @@ while (($#)); do
       ;;
     --authority-ref)
       authority_ref=${2:?missing value for --authority-ref}
+      shift 2
+      ;;
+    --output)
+      output=${2:?missing value for --output}
       shift 2
       ;;
     -h|--help)
@@ -68,6 +73,10 @@ done
 }
 [[ $authority_ref =~ ^[A-Za-z0-9][A-Za-z0-9._:/#@-]{2,255}$ ]] || {
   echo "invalid or missing --authority-ref" >&2
+  exit 2
+}
+[[ -n $output && -d $(dirname "$output") && ! -e $output ]] || {
+  echo "invalid, existing, or missing --output" >&2
   exit 2
 }
 
@@ -143,6 +152,41 @@ jq -e --arg release "$release" '
   exit 1
 }
 
+script_sha256=$(python3 - "$0" <<'PY'
+import hashlib
+from pathlib import Path
+import sys
+print(hashlib.sha256(Path(sys.argv[1]).read_bytes()).hexdigest())
+PY
+)
+gh_version=$(gh --version | head -n 1)
+captured_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+record_tmp=$(mktemp "$(dirname "$output")/.publisher-prerequisite.XXXXXX")
+chmod 600 "$record_tmp"
+jq -S -c -n \
+  --arg capturedAt "$captured_at" \
+  --arg authorityRef "$authority_ref" \
+  --arg account "$active_account" \
+  --arg origin "$origin" \
+  --arg head "$actual_head" \
+  --arg scriptSha256 "$script_sha256" \
+  --arg ghVersion "$gh_version" \
+  --argjson repositoryId "$(jq '.id' "$repo_json")" \
+  --arg repositoryNodeId "$(jq -r '.node_id' "$repo_json")" \
+  --argjson releaseId "$(jq '.id' "$release_json")" \
+  --arg releaseNodeId "$(jq -r '.node_id' "$release_json")" \
+  '{
+    schemaVersion:"publisher-prerequisite-v1", capturedAt:$capturedAt,
+    authorityRef:$authorityRef, githubHost:"github.com", account:$account,
+    repository:{fullName:"effectstream/binaries",id:$repositoryId,nodeId:$repositoryNodeId},
+    release:{tag:"0.3.120",id:$releaseId,nodeId:$releaseNodeId,draft:false,prerelease:false,immutable:false},
+    checkout:{origin:$origin,head:$head,clean:true},
+    tool:{name:"check-manual-publisher-prereqs.sh",scriptSha256:$scriptSha256,ghVersion:$ghVersion},
+    effectiveWrite:true,result:"pass"
+  }' >"$record_tmp"
+mv "$record_tmp" "$output"
+chmod 600 "$output"
+
 printf 'PASS account=%s repository=%s repository_id=%s repository_node_id=%s release=%s release_id=%s release_node_id=%s head=%s authority_ref=%s worktree=clean mode=read-only\n' \
   "$active_account" \
   "$repo" \
@@ -153,5 +197,12 @@ printf 'PASS account=%s repository=%s repository_id=%s repository_node_id=%s rel
   "$(jq -r '.node_id' "$release_json")" \
   "$actual_head" \
   "$authority_ref"
+printf 'RECORD path=%s sha256=%s\n' "$output" "$(python3 - "$output" <<'PY'
+import hashlib
+from pathlib import Path
+import sys
+print(hashlib.sha256(Path(sys.argv[1]).read_bytes()).hexdigest())
+PY
+)"
 
 echo 'WARNING: best-effort single-operator coordination and snapshot rechecks cannot eliminate concurrent-publisher TOCTOU.'

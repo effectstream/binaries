@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import hashlib
 import json
 import os
@@ -16,6 +17,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 PIN = ROOT / "protocol/forge-promotion-envelope-v1.json"
+COMPONENT_PIN = ROOT / "protocol/forge-component-policy-v1.json"
 
 
 def fail(message: str) -> None:
@@ -30,13 +32,38 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def canonical_sha256(value: object) -> str:
+    raw = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n"
+    return hashlib.sha256(raw).hexdigest()
+
+
+def write_record(path: Path, value: dict) -> None:
+    if path.exists() or path.is_symlink() or not path.parent.is_dir():
+        fail("--output must be a new file in an existing private directory")
+    raw = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n"
+    descriptor, temporary = tempfile.mkstemp(prefix=".candidate-verification.", dir=path.parent)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(raw)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        os.chmod(path, 0o600)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--forge-checkout", required=True, type=Path)
+    parser.add_argument("--forge-component-checkout", required=True, type=Path)
     parser.add_argument("--envelope", required=True, type=Path)
     parser.add_argument("--bundle", required=True, type=Path)
     parser.add_argument("--live-evidence", required=True, type=Path)
     parser.add_argument("--content-dir", type=Path)
+    parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--test-noncryptographic-fixture", action="store_true")
     args = parser.parse_args()
 
@@ -55,6 +82,15 @@ def main() -> int:
     )
     if dirty:
         fail("forge protocol checkout is dirty; use a clean exact pinned checkout")
+    origin = subprocess.check_output(
+        ["git", "-C", os.fspath(checkout), "remote", "get-url", "origin"], text=True
+    ).strip()
+    if origin not in {
+        "git@github.com:acedward/midnight-binary-forge.git",
+        "https://github.com/acedward/midnight-binary-forge.git",
+        "https://github.com/acedward/midnight-binary-forge",
+    }:
+        fail("forge checkout origin is not allowlisted")
 
     for item in pin["files"]:
         path = checkout / item["path"]
@@ -79,6 +115,47 @@ def main() -> int:
         fail("candidate repository is not allowlisted")
     if claims["issuer"]["commitSha"] != claims["candidateDraft"]["targetCommitish"]:
         fail("issuer and candidate commit identities differ")
+
+    component_pin = json.loads(COMPONENT_PIN.read_text(encoding="utf-8"))
+    component_checkout = args.forge_component_checkout.resolve()
+    if not (component_checkout / ".git").exists():
+        fail("--forge-component-checkout is not a git checkout")
+    component_head = subprocess.check_output(
+        ["git", "-C", os.fspath(component_checkout), "rev-parse", "HEAD"], text=True
+    ).strip()
+    component_dirty = subprocess.check_output(
+        ["git", "-C", os.fspath(component_checkout), "status", "--porcelain=v1", "--untracked-files=all"],
+        text=True,
+    )
+    if component_dirty:
+        fail("forge component-policy checkout is dirty")
+    component_origin = subprocess.check_output(
+        ["git", "-C", os.fspath(component_checkout), "remote", "get-url", "origin"], text=True
+    ).strip()
+    if component_origin not in {
+        "git@github.com:acedward/midnight-binary-forge.git",
+        "https://github.com/acedward/midnight-binary-forge.git",
+        "https://github.com/acedward/midnight-binary-forge",
+    }:
+        fail("forge component-policy checkout origin is not allowlisted")
+    minimum_component_commit = component_pin["minimumCommitSha"]
+    if args.test_noncryptographic_fixture:
+        if component_head != minimum_component_commit:
+            fail("test component-policy checkout must be the exact independently audited remediation pin")
+    else:
+        if component_head != claims["issuer"]["commitSha"]:
+            fail("candidate issuer commit is not the exact component-policy checkout HEAD")
+        ancestry = subprocess.run(
+            ["git", "-C", os.fspath(component_checkout), "merge-base", "--is-ancestor", minimum_component_commit, component_head],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        if ancestry.returncode != 0:
+            fail("candidate issuer does not descend from the independently audited component-policy remediation")
+    for item in component_pin["files"]:
+        path = component_checkout / item["path"]
+        if not path.is_file() or path.is_symlink() or sha256(path) != item["sha256"]:
+            fail(f"component-policy pinned blob mismatch: {item['path']}")
 
     if args.test_noncryptographic_fixture:
         if os.environ.get("WAREHOUSE_TEST_ALLOW_NONCRYPTOGRAPHIC_FIXTURE") != "1":
@@ -120,6 +197,7 @@ def main() -> int:
             if verification.returncode != 0:
                 fail("GitHub artifact-attestation cryptographic verification failed")
 
+    content_identity = None
     if args.content_dir:
         content_dir = args.content_dir.resolve()
         expected = {
@@ -133,10 +211,46 @@ def main() -> int:
             observed[path.name] = (path.stat().st_size, sha256(path))
         if observed != expected:
             fail("candidate content directory does not exactly match audited envelope claims")
+        content_identity = canonical_sha256([
+            {"name": name, "size": size, "sha256": digest}
+            for name, (size, digest) in sorted(observed.items())
+        ])
+
+    candidate = claims["candidateDraft"]
+    record = {
+        "schemaVersion": "candidate-verification-v1",
+        "verifiedAt": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "result": "pass",
+        "testOnly": args.test_noncryptographic_fixture,
+        "protocolCommit": pin["commitSha"],
+        "protocolManifestSha256": sha256(PIN),
+        "forge": {"origin": origin, "head": head, "clean": True},
+        "componentPolicy": {
+            "origin": component_origin,
+            "issuerCommit": component_head,
+            "minimumCommit": minimum_component_commit,
+            "manifestSha256": sha256(COMPONENT_PIN),
+            "clean": True,
+            "minimumAncestorVerified": True,
+            "exactPinnedBlobs": True,
+        },
+        "candidate": {
+            "repository": candidate["repository"],
+            "tag": candidate["tag"],
+            "releaseId": candidate["releaseId"],
+            "releaseNodeId": candidate["releaseNodeId"],
+            "claimsDigest": envelope["claimsDigest"].removeprefix("sha256:"),
+        },
+        "envelopeSha256": sha256(args.envelope),
+        "bundleSha256": sha256(args.bundle),
+        "liveEvidenceSha256": sha256(args.live_evidence),
+        "contentIdentitySha256": content_identity,
+    }
+    write_record(args.output, record)
 
     print(
         "PASS audited promotion-envelope-v1 "
-        f"candidate={claims['candidateDraft']['tag']} claims={envelope['claimsDigest']}"
+        f"candidate={claims['candidateDraft']['tag']} claims={envelope['claimsDigest']} record={args.output}"
     )
     return 0
 

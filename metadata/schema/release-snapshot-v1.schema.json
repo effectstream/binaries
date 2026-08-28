@@ -39,7 +39,22 @@
       "required": ["perPage", "pages", "totalCount", "complete"],
       "properties": {
         "perPage": {"const": 100},
-        "pages": {"type": "array", "minItems": 1, "items": {"type": "object"}},
+        "pages": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["page", "request", "count", "link", "etag"],
+            "properties": {
+              "page": {"type": "integer", "minimum": 1},
+              "request": {"type": "string", "pattern": "^https://api[.]github[.]com/repos/effectstream/binaries/releases/270761136/assets[?]per_page=100&page=[0-9]+$"},
+              "count": {"type": "integer", "minimum": 0, "maximum": 100},
+              "link": {"type": ["string", "null"]},
+              "etag": {"type": ["string", "null"]}
+            }
+          }
+        },
         "totalCount": {"type": "integer", "minimum": 0, "maximum": 1000},
         "complete": {"const": true}
       }
@@ -48,6 +63,7 @@
       "type": "array",
       "items": {
         "type": "object",
+        "additionalProperties": false,
         "required": ["id", "nodeId", "name", "state", "size", "apiDigest", "sha256", "apiUrl", "downloadUrl", "contentType", "createdAt", "updatedAt"],
         "properties": {
           "id": {"type": "integer", "minimum": 1},
@@ -62,7 +78,38 @@
           "contentType": {"type": "string"},
           "createdAt": {"type": "string", "format": "date-time"},
           "updatedAt": {"type": "string", "format": "date-time"},
-          "inspection": {"type": "object"}
+          "inspection": {"$ref": "#/$defs/inspection"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "mode": {"type": "string", "pattern": "^[0-7]{4}$"},
+    "inspection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "memberCount", "expandedSize", "members", "legacyAnomalies"],
+      "properties": {
+        "format": {"enum": ["zip", "tar.gz", "raw"]},
+        "memberCount": {"type": "integer", "minimum": 1},
+        "expandedSize": {"type": "integer", "minimum": 0},
+        "legacyAnomalies": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "members": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "type", "size", "storedMode", "installMode"],
+            "properties": {
+              "path": {"type": "string", "minLength": 1},
+              "type": {"enum": ["file", "directory", "symlink", "other"]},
+              "size": {"type": "integer", "minimum": 0},
+              "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+              "storedMode": {"$ref": "#/$defs/mode"},
+              "installMode": {"$ref": "#/$defs/mode"}
+            }
+          }
         }
       }
     }

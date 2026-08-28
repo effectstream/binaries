@@ -99,6 +99,7 @@
               "path": { "type": "string", "minLength": 1 },
               "type": { "enum": ["file", "directory", "symlink", "other"] },
               "size": { "type": "integer", "minimum": 0 },
+              "sha256": { "$ref": "#/$defs/sha256" },
               "storedMode": { "$ref": "#/$defs/mode" },
               "installMode": { "$ref": "#/$defs/mode" }
             }
@@ -129,7 +130,100 @@
         "authorities": { "type": "array", "items": { "type": "string" } },
         "teamId": { "type": ["string", "null"] },
         "hardenedRuntime": { "type": ["boolean", "null"] },
-        "strictVerification": { "enum": ["pass", "fail", "unknown"] }
+        "strictVerification": { "enum": ["pass", "fail", "unknown"] },
+        "notarization": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "submissionId", "status", "submittedAt", "completedAt", "logSha256",
+            "logReference", "stapling", "onlineTicket", "gatekeeper", "quarantinedDownloadSmoke"
+          ],
+          "properties": {
+            "submissionId": { "type": "string", "pattern": "^[0-9A-Fa-f-]{36}$" },
+            "status": { "const": "Accepted" },
+            "submittedAt": { "type": "string", "format": "date-time" },
+            "completedAt": { "type": "string", "format": "date-time" },
+            "logSha256": { "$ref": "#/$defs/sha256" },
+            "logReference": { "type": "string", "minLength": 1 },
+            "stapling": { "const": "not-applicable" },
+            "onlineTicket": { "$ref": "#/$defs/verificationEvidence" },
+            "gatekeeper": { "$ref": "#/$defs/verificationEvidence" },
+            "quarantinedDownloadSmoke": { "$ref": "#/$defs/verificationEvidence" }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "distributionSigningState": { "const": "legacy-unverified" } } },
+          "then": {
+            "properties": {
+              "codeSignatureKind": { "const": "unknown" },
+              "cdhash": { "const": null },
+              "authorities": { "maxItems": 0 },
+              "teamId": { "const": null },
+              "hardenedRuntime": { "const": null },
+              "strictVerification": { "const": "unknown" }
+            },
+            "not": { "required": ["notarization"] }
+          }
+        },
+        {
+          "if": { "properties": { "distributionSigningState": { "const": "UNSIGNED_DEVELOPMENT_ONLY" } } },
+          "then": {
+            "properties": {
+              "codeSignatureKind": { "enum": ["none", "linker-adhoc"] },
+              "authorities": { "maxItems": 0 },
+              "teamId": { "const": null },
+              "hardenedRuntime": { "const": false },
+              "strictVerification": { "enum": ["pass", "fail"] }
+            },
+            "not": { "required": ["notarization"] }
+          }
+        },
+        {
+          "if": { "properties": { "codeSignatureKind": { "const": "none" } } },
+          "then": { "properties": { "cdhash": { "const": null }, "strictVerification": { "const": "fail" } } }
+        },
+        {
+          "if": { "properties": { "codeSignatureKind": { "const": "linker-adhoc" } } },
+          "then": { "properties": { "cdhash": { "type": "string", "pattern": "^[0-9A-Fa-f]{40}$" }, "strictVerification": { "const": "pass" } } }
+        },
+        {
+          "if": {
+            "properties": {
+              "distributionSigningState": {
+                "enum": ["DEVELOPER_ID_SIGNED_NOT_NOTARIZED", "DEVELOPER_ID_SIGNED_NOTARIZED_ONLINE_TICKET"]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "codeSignatureKind": { "const": "developer-id" },
+              "cdhash": { "type": "string", "pattern": "^[0-9A-Fa-f]{40}$" },
+              "authorities": { "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+              "teamId": { "type": "string", "pattern": "^[A-Z0-9]{10}$" },
+              "hardenedRuntime": { "const": true },
+              "strictVerification": { "const": "pass" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "distributionSigningState": { "const": "DEVELOPER_ID_SIGNED_NOT_NOTARIZED" } } },
+          "then": { "not": { "required": ["notarization"] } }
+        },
+        {
+          "if": { "properties": { "distributionSigningState": { "const": "DEVELOPER_ID_SIGNED_NOTARIZED_ONLINE_TICKET" } } },
+          "then": { "required": ["notarization"] }
+        }
+      ]
+    },
+    "verificationEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result", "checkedAt"],
+      "properties": {
+        "result": { "const": "pass" },
+        "checkedAt": { "type": "string", "format": "date-time" }
       }
     },
     "proofData": {
@@ -201,7 +295,16 @@
             "upstreamAssetNodeId": { "type": ["string", "null"] },
             "upstreamAssetName": { "type": ["string", "null"] },
             "upstreamAssetSize": { "type": ["integer", "null"], "minimum": 0 },
-            "upstreamAssetSha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" }
+            "upstreamAssetSha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+            "renameMapping": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["from", "to"],
+              "properties": {
+                "from": { "type": "string", "minLength": 1 },
+                "to": { "type": "string", "minLength": 1 }
+              }
+            }
           }
         },
         "evidence": {
