@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+repo=""
+account=""
+release=""
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/check-manual-publisher-prereqs.sh --repo OWNER/REPO --account LOGIN --release TAG
+
+Read-only prerequisite probe. It never uploads, edits a release, or prints auth material.
+EOF
+}
+
+while (($#)); do
+  case "$1" in
+    --repo)
+      repo=${2:?missing value for --repo}
+      shift 2
+      ;;
+    --account)
+      account=${2:?missing value for --account}
+      shift 2
+      ;;
+    --release)
+      release=${2:?missing value for --release}
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+[[ $repo =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || {
+  echo "invalid or missing --repo" >&2
+  exit 2
+}
+[[ $account =~ ^[A-Za-z0-9-]+$ ]] || {
+  echo "invalid or missing --account" >&2
+  exit 2
+}
+[[ $release =~ ^[A-Za-z0-9._-]+$ ]] || {
+  echo "invalid or missing --release" >&2
+  exit 2
+}
+
+top_level=$(git rev-parse --show-toplevel 2>/dev/null) || {
+  echo "publisher prerequisite failed: not a git checkout" >&2
+  exit 1
+}
+[[ $(pwd -P) == $(cd "$top_level" && pwd -P) ]] || {
+  echo "publisher prerequisite failed: run from checkout root" >&2
+  exit 1
+}
+
+if [[ -n $(git status --porcelain=v1 --untracked-files=all) ]]; then
+  echo "publisher prerequisite failed: worktree is dirty" >&2
+  exit 1
+fi
+git diff --check >/dev/null
+
+origin=$(git remote get-url origin 2>/dev/null) || {
+  echo "publisher prerequisite failed: origin is missing" >&2
+  exit 1
+}
+case "$origin" in
+  "git@github.com:$repo.git"|"https://github.com/$repo.git"|"https://github.com/$repo"|"ssh://git@github.com/$repo.git")
+    ;;
+  *)
+    echo "publisher prerequisite failed: origin does not match the intended repository" >&2
+    exit 1
+    ;;
+esac
+
+# Suppress gh's auth report because it contains credential metadata that does not belong in logs.
+gh auth status --hostname github.com >/dev/null 2>&1 || {
+  echo "publisher prerequisite failed: GitHub authentication is unavailable" >&2
+  exit 1
+}
+active_account=$(gh api user --jq '.login')
+[[ $active_account == "$account" ]] || {
+  echo "publisher prerequisite failed: active GitHub account is not the explicitly authorized account" >&2
+  exit 1
+}
+
+repo_json=$(mktemp)
+release_json=$(mktemp)
+trap 'rm -f "$repo_json" "$release_json"' EXIT
+chmod 600 "$repo_json" "$release_json"
+gh api "repos/$repo" >"$repo_json"
+gh api "repos/$repo/releases/tags/$release" >"$release_json"
+
+jq -e --arg repo "$repo" '
+  .full_name == $repo and
+  (.permissions.admin == true or .permissions.maintain == true or .permissions.push == true)
+' "$repo_json" >/dev/null || {
+  echo "publisher prerequisite failed: repository identity or effective write permission mismatch" >&2
+  exit 1
+}
+jq -e --arg release "$release" '.tag_name == $release' "$release_json" >/dev/null || {
+  echo "publisher prerequisite failed: release identity mismatch" >&2
+  exit 1
+}
+
+printf 'PASS account=%s repository=%s repository_id=%s repository_node_id=%s release=%s release_id=%s release_node_id=%s head=%s worktree=clean mode=read-only\n' \
+  "$active_account" \
+  "$repo" \
+  "$(jq -r '.id' "$repo_json")" \
+  "$(jq -r '.node_id' "$repo_json")" \
+  "$release" \
+  "$(jq -r '.id' "$release_json")" \
+  "$(jq -r '.node_id' "$release_json")" \
+  "$(git rev-parse HEAD)"
+
+echo 'WARNING: best-effort single-operator coordination and snapshot rechecks cannot eliminate concurrent-publisher TOCTOU.'
+
