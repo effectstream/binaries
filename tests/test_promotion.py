@@ -138,6 +138,9 @@ class PromotionTests(unittest.TestCase):
 
     def planned_catalog(self, candidate: list[dict]) -> dict:
         catalog = load_json(ROOT / "metadata/releases/0.3.120.json")
+        catalog["entries"] = [
+            row for row in catalog["entries"] if row["publicationState"] == "published"
+        ]
         for row in candidate:
             match = re.fullmatch(r"indexer-standalone-linux-amd64-v(.+)[.]zip", row["name"])
             self.assertIsNotNone(match, row["name"])

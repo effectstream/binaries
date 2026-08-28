@@ -29,10 +29,15 @@ class CatalogTests(unittest.TestCase):
         cls.catalog = load_json(ROOT / "metadata/releases/0.3.120.json")
         cls.schema = ROOT / "metadata/schema/artifact-catalog-v1.schema.json"
 
+    def published_catalog(self) -> dict:
+        catalog = copy.deepcopy(self.catalog)
+        catalog["entries"] = [row for row in catalog["entries"] if row["publicationState"] == "published"]
+        return catalog
+
     def known_software_catalog(self, family: str) -> tuple[dict, dict]:
         contracts = load_json(ROOT / "metadata/contracts/families-v1.json")
         contract = next(row for row in contracts["softwareFamilies"] if row["family"] == family)
-        catalog = copy.deepcopy(self.catalog)
+        catalog = self.published_catalog()
         if family == "midnight-node-toolkit":
             entry = next(row for row in catalog["entries"] if row["family"] == "indexer-standalone" and row["platform"] == "linux/amd64")
             entry["family"] = family
@@ -92,10 +97,12 @@ class CatalogTests(unittest.TestCase):
 
     def test_exact_legacy_backfill(self) -> None:
         validate_catalog(self.catalog, self.schema)
-        self.assertEqual(len(self.catalog["entries"]), 66)
-        self.assertEqual(len({row["semanticId"] for row in self.catalog["entries"]}), 66)
-        self.assertEqual(len({row["asset"]["name"] for row in self.catalog["entries"]}), 66)
-        for row in self.catalog["entries"]:
+        legacy = [row for row in self.catalog["entries"] if row["publicationState"] == "published"]
+        planned = [row for row in self.catalog["entries"] if row["publicationState"] == "planned"]
+        self.assertEqual((len(legacy), len(planned), len(self.catalog["entries"])), (66, 31, 97))
+        self.assertEqual(len({row["semanticId"] for row in legacy}), 66)
+        self.assertEqual(len({row["asset"]["name"] for row in legacy}), 66)
+        for row in legacy:
             self.assertEqual(row["asset"]["apiDigest"], f"sha256:{row['asset']['sha256']}")
             self.assertEqual(row["publicationState"], "published")
             self.assertEqual(row["legacyProvenance"], "legacy-unverified")
@@ -447,7 +454,8 @@ class CatalogTests(unittest.TestCase):
 
     def test_planned_rows_and_global_destination_identities_are_exact(self) -> None:
         _, entry = self.known_software_catalog("indexer-standalone")
-        planned = copy.deepcopy(self.catalog)
+        previous = self.published_catalog()
+        planned = copy.deepcopy(previous)
         entry = copy.deepcopy(entry)
         entry["version"] = "9.9.9"
         entry["semanticId"] = "indexer-standalone/9.9.9/linux/amd64"
@@ -463,8 +471,8 @@ class CatalogTests(unittest.TestCase):
         planned["entries"].append(entry)
         planned["entries"].sort(key=lambda row: row["semanticId"])
         validate_catalog(planned, self.schema)
-        validate_repository_state(planned, stable_index(planned), self.catalog)
-        self.assertEqual(len(stable_index(planned)["entries"]), len(self.catalog["entries"]))
+        validate_repository_state(planned, stable_index(planned), previous)
+        self.assertEqual(len(stable_index(planned)["entries"]), 66)
 
         for mutate in [
             lambda row: row["asset"].update({"id": 999}),
@@ -472,7 +480,7 @@ class CatalogTests(unittest.TestCase):
             lambda row: row["asset"].pop("sha256"),
         ]:
             invalid = copy.deepcopy(planned)
-            mutate(next(row for row in invalid["entries"] if row["publicationState"] == "planned"))
+            mutate(next(row for row in invalid["entries"] if row["semanticId"] == entry["semanticId"]))
             with self.assertRaises(WarehouseError):
                 validate_catalog(invalid, self.schema)
 
