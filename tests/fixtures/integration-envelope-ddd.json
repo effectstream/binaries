@@ -36,8 +36,8 @@
     "contentAssets": [
       {
         "name": "indexer-standalone-linux-amd64-v9.9.9.zip",
-        "size": 9,
-        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "size": 200,
+        "sha256": "e37c2dd80c6827fe0fe9ee9dd789ae0dd4d8c67f14da1d1fa80cb65f9914a0e7",
         "role": "payload",
         "artifactKind": "software",
         "componentId": "integration-fixture",

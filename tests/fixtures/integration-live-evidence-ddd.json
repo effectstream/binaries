@@ -55,13 +55,13 @@
     },
     {
       "name": "indexer-standalone-linux-amd64-v9.9.9.zip",
-      "size": 9,
-      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      "size": 200,
+      "sha256": "e37c2dd80c6827fe0fe9ee9dd789ae0dd4d8c67f14da1d1fa80cb65f9914a0e7"
     },
     {
       "name": "integration-envelope-ddd.json",
-      "size": 1615,
-      "sha256": "9ba606346f4118eb2eeb5c0aecad6db89eb24b0cb5ad59537767cf05604388da"
+      "size": 1617,
+      "sha256": "709a69fc8adc5c17da2b7e0d69d4871d4e62af4c3333ff53b96ea7c6c9452f5a"
     }
   ]
 }

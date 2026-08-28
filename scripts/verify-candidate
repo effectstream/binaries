@@ -139,10 +139,10 @@ def main() -> int:
         if not args.test_noncryptographic_fixture:
             fail("--test-integration-envelope is allowed only with the nonauthorizing test fixture")
         expected_integration = ROOT / "tests/fixtures/integration-envelope-ddd.json"
-        if args.test_integration_envelope.resolve() != expected_integration.resolve() or sha256(expected_integration) != "9ba606346f4118eb2eeb5c0aecad6db89eb24b0cb5ad59537767cf05604388da":
+        if args.test_integration_envelope.resolve() != expected_integration.resolve() or sha256(expected_integration) != "709a69fc8adc5c17da2b7e0d69d4871d4e62af4c3333ff53b96ea7c6c9452f5a":
             fail("test integration envelope is not the exact warehouse fixture")
         integration_live = ROOT / "tests/fixtures/integration-live-evidence-ddd.json"
-        if sha256(integration_live) != "6bad1a7c2f0f842faebd4b602bf47baef89008eee76be4e176ff5d92d0b6e0f1":
+        if sha256(integration_live) != "142a1893765426c1276374e4c2a7245a4a17e4f016d790d794eb9798c553dd9c":
             fail("test integration live evidence is not the exact warehouse fixture")
         envelope = strict_json(expected_integration)
         record_envelope = expected_integration

@@ -15,8 +15,10 @@ from warehouse_lib import (  # noqa: E402
     load_json,
     resolve_catalog,
     stable_index,
+    validate_baseline_change_rows,
     validate_catalog,
     validate_repository_state,
+    validate_snapshot_catalog_binding,
     validate_transition,
 )
 
@@ -400,6 +402,35 @@ class CatalogTests(unittest.TestCase):
     def test_committed_index_and_state_transitions_are_bound(self) -> None:
         index = stable_index(self.catalog)
         validate_repository_state(self.catalog, index, copy.deepcopy(self.catalog))
+        current = load_json(ROOT / "metadata/baselines/0.3.120-initial.json")
+        validate_snapshot_catalog_binding(self.catalog, current)
+        extra = copy.deepcopy(current["assets"][0])
+        extra.update({
+            "id": 999999999, "nodeId": "RA_untracked_current_baseline",
+            "name": "untracked-linux-amd64-v1.0.0.zip", "size": 1,
+            "sha256": "f" * 64, "apiDigest": "sha256:" + "f" * 64,
+            "apiUrl": "https://api.github.com/repos/effectstream/binaries/releases/assets/999999999",
+            "downloadUrl": "https://github.com/effectstream/binaries/releases/download/0.3.120/untracked-linux-amd64-v1.0.0.zip",
+        })
+        extra.pop("inspection", None)
+        current["assets"].append(extra)
+        current["assets"].sort(key=lambda row: row["name"])
+        current["pagination"]["totalCount"] += 1
+        current["pagination"]["pages"][0]["count"] += 1
+        with self.assertRaisesRegex(WarehouseError, "cataloged destination assets"):
+            validate_snapshot_catalog_binding(self.catalog, current)
+
+        validate_baseline_change_rows([
+            "A\tmetadata/baselines/0.3.120-after-upload.json",
+            "M\tmetadata/baselines/0.3.120-current.json",
+        ])
+        for forbidden in [
+            "M\tmetadata/baselines/0.3.120-initial.json",
+            "D\tmetadata/baselines/0.3.120-initial.json",
+            "R100\tmetadata/baselines/0.3.120-initial.json\tmetadata/baselines/moved.json",
+        ]:
+            with self.assertRaisesRegex(WarehouseError, "immutable|rename"):
+                validate_baseline_change_rows([forbidden])
         bad_index = copy.deepcopy(index)
         bad_index["entries"].pop()
         with self.assertRaises(WarehouseError):

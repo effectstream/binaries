@@ -4,26 +4,32 @@ import copy
 from datetime import datetime, timezone
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 import unittest
+from unittest import mock
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from promotion_tool import make_receipt, validate_initial_proposal, validate_receipt_bindings  # noqa: E402
+from promotion_tool import main as promotion_main, make_receipt, validate_candidate_payloads, validate_initial_proposal, validate_receipt_bindings  # noqa: E402
 from warehouse_lib import (  # noqa: E402
     WarehouseError,
     canonical_bytes,
     canonical_sha256,
+    inspect_archive,
     load_json,
     resolve_catalog,
     sha256_file,
     stable_index,
     validate_catalog,
     validate_repository_state,
+    write_canonical,
 )
 from tests.test_proof_contract import proof_entry  # noqa: E402
 
@@ -50,7 +56,7 @@ class CleanRoomReadmeTests(unittest.TestCase):
             "warning": "DEVELOPMENT ONLY — NOT FOR PRODUCTION USE. Release `0.3.120` is mutable; verify every downloaded SHA-256 against committed metadata before installation or execution.",
         }
 
-    def planned_indexer(self, candidate: dict, *, family: str = "indexer-standalone", version: str = "9.9.9") -> tuple[dict, dict]:
+    def planned_indexer(self, candidate: dict, *, family: str = "indexer-standalone", version: str = "9.9.9", archive: dict | None = None) -> tuple[dict, dict]:
         catalog = load_json(ROOT / "metadata/releases/0.3.120.json")
         contracts = load_json(ROOT / "metadata/contracts/families-v1.json")
         contract = next(row for row in contracts["softwareFamilies"] if row["family"] == family)
@@ -64,7 +70,7 @@ class CleanRoomReadmeTests(unittest.TestCase):
             "platform": "linux/amd64", "os": "linux", "arch": "amd64", "coverageTier": "required",
             "publicationState": "planned", "distributionTier": "development-only", "releaseMutability": "mutable-warehouse",
             "asset": {**candidate, "state": "candidate"},
-            "archive": {"format": contract["archive"], "memberCount": len(members), "expandedSize": len(members), "members": [
+            "archive": archive or {"format": contract["archive"], "memberCount": len(members), "expandedSize": len(members), "members": [
                 {"path": path, "type": "file", "size": 1, "sha256": hashlib.sha256(path.encode()).hexdigest(),
                  "storedMode": "0755" if path == executable else "0644", "installMode": "0755" if path == executable else "0644"}
                 for path in members
@@ -108,7 +114,24 @@ class CleanRoomReadmeTests(unittest.TestCase):
         ]
         manifest = {"schemaVersion": "candidate-assets-v1", "assets": candidate}
         proposal = self.future_proposal(candidate, binary_names=[candidate[0]["name"]], proof_names=[])
-        planned_catalog, _ = self.planned_indexer(candidate[0])
+        with tempfile.TemporaryDirectory() as temporary:
+            candidate_dir = Path(temporary)
+            archive_path = candidate_dir / candidate[0]["name"]
+            member_name = candidate[0]["name"].removesuffix(".zip")
+            member = zipfile.ZipInfo(member_name, date_time=(1980, 1, 1, 0, 0, 0))
+            member.create_system = 3
+            member.external_attr = 0o100755 << 16
+            member.compress_type = zipfile.ZIP_STORED
+            with zipfile.ZipFile(archive_path, "w") as archive_file:
+                archive_file.writestr(member, b"integration-indexer-fixture\n")
+            self.assertEqual(
+                {"size": archive_path.stat().st_size, "sha256": sha256_file(archive_path)},
+                {"size": candidate[0]["size"], "sha256": candidate[0]["sha256"]},
+            )
+            planned_catalog, _ = self.planned_indexer(
+                candidate[0], archive=inspect_archive(archive_path, candidate[0]["name"]),
+            )
+            validate_candidate_payloads(candidate_dir, planned_catalog)
         now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
         prerequisite = {
             "schemaVersion": "publisher-prerequisite-v1", "capturedAt": now,
@@ -177,11 +200,26 @@ class CleanRoomReadmeTests(unittest.TestCase):
         self.assertTrue(all(re.fullmatch(r"[0-9a-f]{64}", row["sha256"]) for row in pin["files"]))
 
     def test_readme_exact_proposal_and_receipt_boundary_executes(self) -> None:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        transaction_root = Path(temporary.name)
+        os.chmod(transaction_root, 0o700)
+        candidate_dir = transaction_root / "candidate"
+        candidate_dir.mkdir(mode=0o700)
         name = "indexer-standalone-linux-amd64-v9.9.9.zip"
-        candidate = [{"name": name, "size": 9, "sha256": hashlib.sha256(b"candidate").hexdigest()}]
+        archive_path = candidate_dir / name
+        member_name = name.removesuffix(".zip")
+        member_bytes = b"clean-room-indexer-fixture\n"
+        member = zipfile.ZipInfo(member_name, date_time=(1980, 1, 1, 0, 0, 0))
+        member.create_system = 3
+        member.external_attr = 0o100755 << 16
+        member.compress_type = zipfile.ZIP_STORED
+        with zipfile.ZipFile(archive_path, "w") as archive_file:
+            archive_file.writestr(member, member_bytes)
+        candidate = [{"name": name, "size": archive_path.stat().st_size, "sha256": sha256_file(archive_path)}]
         manifest = {"schemaVersion": "candidate-assets-v1", "assets": candidate}
         proposal = self.future_proposal(candidate, binary_names=[name], proof_names=[])
-        planned_catalog, _ = self.planned_indexer(candidate[0])
+        planned_catalog, _ = self.planned_indexer(candidate[0], archive=inspect_archive(archive_path, name))
         issuer = "ddd2838d0226eeaaca8f7a42ad82cba1a132bbfe"
         envelope = self.envelope(candidate, [name])
         envelope_bytes = canonical_bytes(envelope)
@@ -221,18 +259,48 @@ class CleanRoomReadmeTests(unittest.TestCase):
             "candidate": {"repository": "acedward/midnight-binary-forge", "tag": "clean-room", "releaseId": 1, "releaseNodeId": "RE_clean_room", "claimsDigest": "b" * 64},
             "envelopeSha256": hashlib.sha256(envelope_bytes).hexdigest(), "bundleSha256": "b" * 64,
             "liveEvidenceSha256": canonical_sha256(live),
-            "liveEvidence": live, "contentIdentitySha256": None,
+            "liveEvidence": live, "contentIdentitySha256": canonical_sha256(candidate),
         }
         snapshot = load_json(ROOT / "metadata/baselines/0.3.120-initial.json")
         snapshot["release"]["bodySha256"] = hashlib.sha256((ROOT / "metadata/templates/release-body.md").read_bytes()).hexdigest()
-        receipt = make_receipt(
-            snapshot=snapshot,
-            candidate=candidate, candidate_manifest=manifest, proposal=proposal,
-            planned_catalog=planned_catalog,
-            envelope_bytes=envelope_bytes, authority="owner-approval-clean-room",
-            intended_body_bytes=(ROOT / "metadata/templates/release-body.md").read_bytes(),
-            publisher_prerequisite=prerequisite, candidate_verification=verification,
-        )
+        paths = {
+            "manifest": transaction_root / "candidate.json",
+            "proposal": transaction_root / "proposal.json",
+            "planned": transaction_root / "planned.json",
+            "snapshot": transaction_root / "snapshot.json",
+            "envelope": transaction_root / "promotion-envelope.json",
+            "bundle": transaction_root / "attestation.sigstore.json",
+            "prerequisite": transaction_root / "prerequisite.json",
+            "body": transaction_root / "release-body.md",
+        }
+        for key, value in [
+            ("manifest", manifest), ("proposal", proposal), ("planned", planned_catalog),
+            ("snapshot", snapshot), ("prerequisite", prerequisite),
+        ]:
+            write_canonical(paths[key], value, mode=0o600 if key == "prerequisite" else 0o644)
+        paths["envelope"].write_bytes(envelope_bytes)
+        paths["bundle"].write_bytes(b"clean-room-test-bundle")
+        paths["body"].write_bytes((ROOT / "metadata/templates/release-body.md").read_bytes())
+        receipt_path = transaction_root / "receipt.json"
+        argv = [
+            "promotion_tool.py", "preflight", "--candidate-dir", str(candidate_dir),
+            "--candidate-manifest", str(paths["manifest"]), "--proposal", str(paths["proposal"]),
+            "--planned-catalog", str(paths["planned"]), "--snapshot", str(paths["snapshot"]),
+            "--candidate-envelope", str(paths["envelope"]), "--authority", "owner-approval-clean-room",
+            "--prerequisite-record", str(paths["prerequisite"]), "--candidate-bundle", str(paths["bundle"]),
+            "--forge-checkout", str(transaction_root / "protocol"),
+            "--forge-component-checkout", str(transaction_root / "component"),
+            "--intended-release-body", str(paths["body"]), "--receipt", str(receipt_path),
+        ]
+        with (
+            mock.patch.object(sys, "argv", argv),
+            mock.patch("promotion_tool.validate_prerequisite_record"),
+            mock.patch("promotion_tool.fresh_verify_candidate", return_value=verification) as verifier,
+            mock.patch("promotion_tool.validate_component_policy_checkout"),
+        ):
+            self.assertEqual(promotion_main(), 0)
+            verifier.assert_called_once()
+        receipt = load_json(receipt_path)
         validate_receipt_bindings(receipt, manifest, allow_test_verification=True)
         self.assertEqual(receipt["candidateVerification"]["componentPolicy"]["issuerCommit"], issuer)
         self.assertEqual(receipt["preflight"]["absentCount"], 1)
@@ -267,13 +335,20 @@ class CleanRoomReadmeTests(unittest.TestCase):
             "downloadUrl": f"https://github.com/effectstream/binaries/releases/download/0.3.120/{name}",
             "contentType": "application/zip", "createdAt": now, "updatedAt": now,
         }
-        validate_repository_state(uploading, stable_index(uploading), planned_catalog)
+        with self.assertRaisesRegex(WarehouseError, "current baseline assets"):
+            validate_repository_state(uploading, stable_index(uploading), planned_catalog)
+        uploaded_snapshot = copy.deepcopy(snapshot)
+        uploaded_snapshot["assets"].append(copy.deepcopy(row["asset"]))
+        uploaded_snapshot["assets"].sort(key=lambda item: item["name"])
+        uploaded_snapshot["pagination"]["totalCount"] += 1
+        uploaded_snapshot["pagination"]["pages"][0]["count"] += 1
+        validate_repository_state(uploading, stable_index(uploading), planned_catalog, uploaded_snapshot)
         verified = copy.deepcopy(uploading)
         next(item for item in verified["entries"] if item["semanticId"] == row["semanticId"])["publicationState"] = "verified"
-        validate_repository_state(verified, stable_index(verified), uploading)
+        validate_repository_state(verified, stable_index(verified), uploading, uploaded_snapshot)
         published = copy.deepcopy(verified)
         next(item for item in published["entries"] if item["semanticId"] == row["semanticId"])["publicationState"] = "published"
-        validate_repository_state(published, stable_index(published), verified)
+        validate_repository_state(published, stable_index(published), verified, uploaded_snapshot)
         self.assertEqual(len(stable_index(planned_catalog)["entries"]), 66)
         self.assertEqual(len(stable_index(published)["entries"]), 67)
 

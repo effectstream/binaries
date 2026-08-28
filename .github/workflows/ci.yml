@@ -71,7 +71,7 @@ jobs:
           record = json.load(open(sys.argv[1], encoding="utf-8"))
           assert record["testOnly"] is True
           assert record["componentPolicy"]["issuerCommit"] == "ddd2838d0226eeaaca8f7a42ad82cba1a132bbfe"
-          assert record["envelopeSha256"] == "9ba606346f4118eb2eeb5c0aecad6db89eb24b0cb5ad59537767cf05604388da"
+          assert record["envelopeSha256"] == "709a69fc8adc5c17da2b7e0d69d4871d4e62af4c3333ff53b96ea7c6c9452f5a"
           validate_candidate_verification_record(record, pathlib.Path(sys.argv[2]).read_bytes(), require_live=False)
           from tests.test_clean_room import CleanRoomReadmeTests
           receipt = CleanRoomReadmeTests().receipt_from_exact_two_pin_record(record)

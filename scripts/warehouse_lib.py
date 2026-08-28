@@ -990,20 +990,24 @@ def validate_q8b_entry(entry: dict[str, Any], contract: dict[str, Any]) -> None:
             )
 
 
+def validate_json_schema(value: Any, schema_path: Path) -> None:
+    try:
+        import jsonschema  # type: ignore
+    except ImportError as exc:
+        raise WarehouseError("jsonschema is required for schema validation") from exc
+    validator = jsonschema.Draft202012Validator(load_json(schema_path), format_checker=jsonschema.FormatChecker())
+    errors = sorted(validator.iter_errors(value), key=lambda error: list(error.absolute_path))
+    if errors:
+        raise WarehouseError("schema validation failed: " + "; ".join(error.message for error in errors[:10]))
+
+
 def validate_catalog(
     catalog: dict[str, Any], schema_path: Path | None = None, *,
     family_contracts_override: dict[str, Any] | None = None,
     proof_contract_override: dict[str, Any] | None = None,
 ) -> None:
     if schema_path:
-        try:
-            import jsonschema  # type: ignore
-        except ImportError as exc:
-            raise WarehouseError("jsonschema is required for schema validation") from exc
-        validator = jsonschema.Draft202012Validator(load_json(schema_path), format_checker=jsonschema.FormatChecker())
-        errors = sorted(validator.iter_errors(catalog), key=lambda error: list(error.absolute_path))
-        if errors:
-            raise WarehouseError("schema validation failed: " + "; ".join(error.message for error in errors[:10]))
+        validate_json_schema(catalog, schema_path)
 
     expect(catalog.get("schemaVersion") == "artifact-catalog-v1", "wrong catalog schema")
     expect(catalog.get("warning") == WARNING, "required development warning mismatch")
@@ -1213,10 +1217,54 @@ def validate_transition(before: str, after: str) -> None:
     expect(before in STATE_TRANSITIONS and after in STATE_TRANSITIONS[before], f"invalid publication transition {before}->{after}")
 
 
+def validate_snapshot_catalog_binding(catalog: dict[str, Any], snapshot: dict[str, Any]) -> None:
+    """Bind the monitored live-release snapshot to every cataloged destination asset."""
+    validate_json_schema(snapshot, ROOT / "metadata/schema/release-snapshot-v1.schema.json")
+    observed = [
+        {key: value for key, value in row.items() if key != "inspection"}
+        for row in snapshot["assets"]
+    ]
+    expected = sorted(
+        [entry["asset"] for entry in catalog["entries"] if entry["asset"].get("state") == "uploaded"],
+        key=lambda row: row["name"],
+    )
+    expect(observed == sorted(observed, key=lambda row: row["name"]), "current baseline assets are not canonically sorted")
+    expect(observed == expected, "current baseline assets differ from cataloged destination assets")
+    pages = snapshot["pagination"]["pages"]
+    expect(snapshot["pagination"]["totalCount"] == len(observed), "current baseline pagination total differs from assets")
+    expect(sum(page["count"] for page in pages) == len(observed), "current baseline pagination page counts differ from assets")
+
+
+def validate_baseline_change_rows(rows: list[str]) -> None:
+    """Old immutable snapshots may only be retained; add new snapshots and rotate the pointer."""
+    for line in rows:
+        if not line:
+            continue
+        parts = line.split("\t")
+        expect(len(parts) == 2, "baseline history contains a rename/copy or malformed change")
+        status, path = parts
+        allowed = status == "A" or (status == "M" and path == "metadata/baselines/0.3.120-current.json")
+        expect(allowed, f"prior release baseline is immutable and must be retained: {status} {path}")
+
+
+def validate_baseline_history(review_base: str) -> None:
+    expect(re.fullmatch(r"[0-9a-f]{40}", review_base) is not None, "review base must be an exact commit")
+    output = subprocess.check_output(
+        ["git", "-C", os.fspath(ROOT), "diff", "--no-renames", "--name-status", review_base, "--", "metadata/baselines"],
+        text=True,
+    )
+    validate_baseline_change_rows(output.splitlines())
+
+
 def validate_repository_state(
-    catalog: dict[str, Any], index: dict[str, Any], previous_catalog: dict[str, Any]
+    catalog: dict[str, Any], index: dict[str, Any], previous_catalog: dict[str, Any],
+    current_snapshot: dict[str, Any] | None = None,
 ) -> None:
     expect(index == stable_index(catalog), "committed stable index differs from deterministic published catalog projection")
+    validate_snapshot_catalog_binding(
+        catalog,
+        current_snapshot if current_snapshot is not None else load_release_baseline(ROOT / "metadata/baselines/0.3.120-current.json"),
+    )
     previous = {entry["semanticId"]: entry for entry in previous_catalog["entries"]}
     current = {entry["semanticId"]: entry for entry in catalog["entries"]}
     expect(set(previous) <= set(current), "append-only catalog cannot delete prior semantic IDs")
@@ -1266,6 +1314,7 @@ def main() -> int:
     validate.add_argument("--index", type=Path, default=ROOT / "metadata/index.json")
     validate.add_argument("--previous-catalog", type=Path)
     validate.add_argument("--baseline-snapshot", type=Path, default=ROOT / "metadata/baselines/0.3.120-initial.json")
+    validate.add_argument("--review-base")
 
     resolve = sub.add_parser("resolve")
     resolve.add_argument("--catalog", type=Path, default=ROOT / "metadata/releases/0.3.120.json")
@@ -1306,6 +1355,8 @@ def main() -> int:
                 if args.previous_catalog
                 else catalog_from_snapshot(load_json(args.baseline_snapshot))
             )
+            if args.review_base:
+                validate_baseline_history(args.review_base)
             validate_repository_state(catalog, load_json(args.index), previous)
             print(f"PASS catalog entries={len(catalog['entries'])}")
         elif args.command == "resolve":
