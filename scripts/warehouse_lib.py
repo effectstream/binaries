@@ -173,22 +173,31 @@ def safe_asset_name(name: str) -> str:
 
 def download_asset(url: str, output: Path, expected_size: int) -> str:
     expect(url.startswith(f"https://github.com/{REPOSITORY}/releases/download/{RELEASE_TAG}/"), "unexpected asset URL")
-    request = urllib.request.Request(url, headers={"User-Agent": "effectstream-warehouse-verifier/1"})
-    digest = hashlib.sha256()
-    total = 0
-    with urllib.request.urlopen(request, timeout=180) as response, output.open("wb") as handle:
-        expect(response.geturl().startswith("https://release-assets.githubusercontent.com/"), "download did not resolve to GitHub release storage")
-        while True:
-            chunk = response.read(4 * 1024 * 1024)
-            if not chunk:
+    last_error: Exception | None = None
+    for attempt in range(1, 4):
+        digest = hashlib.sha256()
+        total = 0
+        try:
+            request = urllib.request.Request(url, headers={"User-Agent": "effectstream-warehouse-verifier/1"})
+            with urllib.request.urlopen(request, timeout=180) as response, output.open("wb") as handle:
+                expect(response.geturl().startswith("https://release-assets.githubusercontent.com/"), "download did not resolve to GitHub release storage")
+                while True:
+                    chunk = response.read(4 * 1024 * 1024)
+                    if not chunk:
+                        break
+                    handle.write(chunk)
+                    digest.update(chunk)
+                    total += len(chunk)
+                handle.flush()
+                os.fsync(handle.fileno())
+            expect(total == expected_size, f"independent download size mismatch: expected {expected_size}, observed {total}")
+            return digest.hexdigest()
+        except (OSError, WarehouseError) as exc:
+            last_error = exc
+            output.unlink(missing_ok=True)
+            if attempt == 3:
                 break
-            handle.write(chunk)
-            digest.update(chunk)
-            total += len(chunk)
-        handle.flush()
-        os.fsync(handle.fileno())
-    expect(total == expected_size, f"independent download size mismatch: expected {expected_size}, observed {total}")
-    return digest.hexdigest()
+    raise WarehouseError(f"independent download failed after three attempts: {last_error}")
 
 
 def octal_mode(value: int) -> str:
@@ -214,6 +223,7 @@ def inspect_zip(path: Path) -> dict[str, Any]:
     expanded = 0
     with zipfile.ZipFile(path) as archive:
         for info in archive.infolist():
+            expect(len(members) < 100000, "legacy ZIP exceeds the bounded 100000-member inspection limit")
             name = info.filename
             expect("\x00" not in name and not name.startswith("/"), f"unsafe legacy ZIP member {name!r}")
             parts = PurePosixPath(name).parts
@@ -235,6 +245,7 @@ def inspect_zip(path: Path) -> dict[str, Any]:
             if name.startswith("__MACOSX/") or PurePosixPath(name).name.startswith("._"):
                 anomalies.add("legacy-appledouble")
             expanded += info.file_size
+            expect(expanded <= 16 * 1024**3, "legacy ZIP exceeds the bounded 16-GiB expanded-size inspection limit")
             members.append(
                 {
                     "path": name,
@@ -260,6 +271,7 @@ def inspect_tar(path: Path) -> dict[str, Any]:
     expanded = 0
     with tarfile.open(path, mode="r:gz") as archive:
         for info in archive.getmembers():
+            expect(len(members) < 100000, "legacy TAR exceeds the bounded 100000-member inspection limit")
             name = info.name
             expect("\x00" not in name and not name.startswith("/"), f"unsafe legacy TAR member {name!r}")
             expect(".." not in PurePosixPath(name).parts, f"traversal legacy TAR member {name!r}")
@@ -276,6 +288,7 @@ def inspect_tar(path: Path) -> dict[str, Any]:
             if name.startswith("__MACOSX/") or PurePosixPath(name).name.startswith("._"):
                 anomalies.add("legacy-appledouble")
             expanded += info.size
+            expect(expanded <= 16 * 1024**3, "legacy TAR exceeds the bounded 16-GiB expanded-size inspection limit")
             members.append(
                 {
                     "path": name,

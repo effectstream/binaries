@@ -49,6 +49,12 @@ def main() -> int:
     ).strip()
     if head != pin["commitSha"]:
         fail(f"forge checkout HEAD {head} is not the exact audited protocol pin")
+    dirty = subprocess.check_output(
+        ["git", "-C", os.fspath(checkout), "status", "--porcelain=v1", "--untracked-files=all"],
+        text=True,
+    )
+    if dirty:
+        fail("forge protocol checkout is dirty; use a clean exact pinned checkout")
 
     for item in pin["files"]:
         path = checkout / item["path"]
@@ -102,6 +108,11 @@ def main() -> int:
                     "--repo", "acedward/midnight-binary-forge",
                     "--bundle", os.fspath(args.bundle),
                     "--predicate-type", pin["predicateType"],
+                    "--cert-identity", pin["attestationIdentity"],
+                    "--cert-oidc-issuer", envelope["attestation"]["issuer"],
+                    "--source-ref", claims["issuer"]["ref"],
+                    "--source-digest", claims["issuer"]["commitSha"],
+                    "--deny-self-hosted-runners",
                 ],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,

@@ -255,6 +255,9 @@ def main() -> int:
             candidate = candidate_rows(args.candidate_dir, manifest)
             envelope = load_json(args.candidate_envelope)
             verify_envelope_candidate_binding(envelope, candidate)
+            intended_body = args.intended_release_body.read_text(encoding="utf-8")
+            expect(intended_body.startswith("> **DEVELOPMENT ONLY — NOT FOR PRODUCTION USE.**"), "intended release body must put the development warning first")
+            expect("`0.3.120` is mutable" in intended_body and "SHA-256" in intended_body, "intended release body lacks mutable-location/digest warning")
             snapshot = load_json(args.snapshot)
             report = complete_conflict_report(snapshot, candidate)
             if args.report:
