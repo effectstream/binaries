@@ -229,7 +229,7 @@ The selected architecture-neutral set is exactly twenty raw assets `bls_midnight
 
 K1–K19 use `srsGeneration=midnight-trusted-setup@3ea610263b228af24840f7b00661ee22360db6d8`; official names `midnight-srs-2p{k}` map explicitly to cache names `bls_midnight_2p{k}`. K0 has no ceremony catalog row and truthfully uses provider compatibility provenance `midnight-ledger-provider-compat@7a89f45d29792be7e09ca5eb246f1e69f0b2a179/sha256:59b30b…`. All raw files install `0644` under their literal cache names.
 
-The Ledger archive restores only twelve `zswap/9/*` and `dust/9/*` files at `0644`. Its identity is `ledgerStaticSemver=9.0.0`, `cacheNamespace=9`, and full `memberManifestSha256`; it is not versioned by proof-server RC. Exact rc.5 source plus the two pinned OCI digests accept static-9. Exact source `cd652d7…`/static-10 and its architecture-specific images reject static-9 while reusing the unchanged SRS.
+The Ledger archive restores only twelve `zswap/9/*` and `dust/9/*` files at `0644`. Its semantic identity is the canonical, file-only, path-sorted `ledger-static-member-manifest-v1` projection (`path`, `bytes`, `sha256`, `mode`) and full `memberManifestSha256`; deterministic ZIP directory/type/order evidence is retained separately as the ZIP-layout manifest and never changes the semantic digest algorithm. Its version identity is `ledgerStaticSemver=9.0.0` plus `cacheNamespace=9`, not a proof-server RC. Exact rc.5 source plus the two pinned OCI digests accept static-9. Exact source `cd652d7…`/static-10 and its architecture-specific images reject static-9 while reusing the unchanged SRS.
 
 Append-only correction rules:
 

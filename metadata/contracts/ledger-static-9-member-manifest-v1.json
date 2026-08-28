@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "ledger-static-member-manifest-v1",
+  "members": [
+    {"path": "dust/9/spend.bzkir", "bytes": 2555, "sha256": "904181287e75b0fb596ba5fcc116c882ee5d28e3115304c93ebd913722ce5841", "mode": "0644"},
+    {"path": "dust/9/spend.prover", "bytes": 2175671, "sha256": "996602da7ca386284e656c78ea03e55bffdba29475e6a67965c50de05e13efc2", "mode": "0644"},
+    {"path": "dust/9/spend.verifier", "bytes": 1351, "sha256": "3f1569ebcab0655c5c145b28947c74edc4e3f5c6b276e4404b661cf0905b49d3", "mode": "0644"},
+    {"path": "zswap/9/output.bzkir", "bytes": 494, "sha256": "91dc8b401dd8385e8d29eaac018c70b578505f48c7952452ef319bc397fa1f1b", "mode": "0644"},
+    {"path": "zswap/9/output.prover", "bytes": 5730182, "sha256": "d992b04f13c3fd432f55fb8bfe6466d87bc181f1a2acf233ec228030bbdd4ed8", "mode": "0644"},
+    {"path": "zswap/9/output.verifier", "bytes": 2311, "sha256": "72e8074856f2f5c504ade25a86a2b8902c64aeb9497c4c8e6b26dea842a0ab08", "mode": "0644"},
+    {"path": "zswap/9/sign.bzkir", "bytes": 114, "sha256": "37ea2094516e145a738126307cf92bd293f7cb524b1ccd49fa6f3225a9ec3a50", "mode": "0644"},
+    {"path": "zswap/9/sign.prover", "bytes": 2814823, "sha256": "fe7268dd2bdd107f862f881ac3c5bc71a6df77ce80bfed51cf71514648e660e0", "mode": "0644"},
+    {"path": "zswap/9/sign.verifier", "bytes": 2023, "sha256": "e39a727caa0de167e6dd6122a9e3b758fecf48f9093ab77c0309648de8ce07e1", "mode": "0644"},
+    {"path": "zswap/9/spend.bzkir", "bytes": 1294, "sha256": "7cb5bbcf67cb212a3336fb439a77e8f32f0aa8a56185c8e1247d6cbfc7300205", "mode": "0644"},
+    {"path": "zswap/9/spend.prover", "bytes": 11020001, "sha256": "19d234b5c68b7212ad6b0ec9334a95594748154128f3704eb576bcc843cc5c45", "mode": "0644"},
+    {"path": "zswap/9/spend.verifier", "bytes": 2311, "sha256": "544554effd7ae9fb9063be52a9ec2a986756301071fcd97bb4598fb45a335658", "mode": "0644"}
+  ]
+}
