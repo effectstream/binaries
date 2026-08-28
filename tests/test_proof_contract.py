@@ -14,6 +14,14 @@ from warehouse_lib import WarehouseError, canonical_sha256, ledger_member_manife
 CONTRACT = load_json(ROOT / "metadata/contracts/proof-data-q8b-v1.json")
 
 
+def published_catalog() -> dict:
+    catalog = load_json(ROOT / "metadata/releases/0.3.120.json")
+    catalog["entries"] = [
+        row for row in catalog["entries"] if row["publicationState"] == "published"
+    ]
+    return catalog
+
+
 def proof_entry(*, k: int | None = None, semver: str | None = None, name: str | None = None, generation: str | None = None, correction_seed: str | None = None) -> dict:
     if k is not None:
         pinned = CONTRACT["srs"]["objects"][k]
@@ -124,7 +132,7 @@ class ProofContractTests(unittest.TestCase):
         self.assertEqual(contract["ledgerStatic"]["archiveBytes"], 21601265)
 
     def test_generation_and_static_revision_resolution(self) -> None:
-        base = load_json(ROOT / "metadata/releases/0.3.120.json")
+        base = published_catalog()
         generation_1 = proof_entry(k=5)
         generation_2 = proof_entry(k=5, name="midnight-srs-noarch-2p5-sha256-" + "d" * 64 + ".bin", generation="sha256:" + "d" * 64)
         generation_2["asset"]["id"] = 1000
@@ -140,7 +148,7 @@ class ProofContractTests(unittest.TestCase):
         self.assertEqual(result["assetName"], generation_2["asset"]["name"])
 
         normal = proof_entry(semver="9.0.0")
-        normal_catalog = load_json(ROOT / "metadata/releases/0.3.120.json")
+        normal_catalog = published_catalog()
         normal_catalog["entries"].append(normal)
         validate_catalog(normal_catalog, ROOT / "metadata/schema/artifact-catalog-v1.schema.json")
         self.assertEqual(normal["proofData"]["memberManifestSha256"], CONTRACT["ledgerStatic"]["memberManifestSha256"])
@@ -151,7 +159,7 @@ class ProofContractTests(unittest.TestCase):
         second["asset"]["id"] = 1001
         second["asset"]["nodeId"] = "RA_fixture_3"
         second["asset"]["apiUrl"] = "https://api.github.com/repos/effectstream/binaries/releases/assets/1001"
-        another = load_json(ROOT / "metadata/releases/0.3.120.json")
+        another = published_catalog()
         another["entries"].extend([first, second])
         validate_catalog(another, ROOT / "metadata/schema/artifact-catalog-v1.schema.json")
         with self.assertRaisesRegex(WarehouseError, "Ledger-static"):
@@ -160,7 +168,7 @@ class ProofContractTests(unittest.TestCase):
         self.assertEqual(result["assetName"], second["asset"]["name"])
 
     def test_static10_cannot_claim_static9(self) -> None:
-        base = load_json(ROOT / "metadata/releases/0.3.120.json")
+        base = published_catalog()
         invalid = proof_entry(semver="9.0.0", correction_seed="d")
         invalid["proofData"]["exactConsumers"][0]["ledgerStaticSemver"] = "10.0.0"
         base["entries"].append(invalid)
@@ -179,7 +187,7 @@ class ProofContractTests(unittest.TestCase):
         ]:
             changed = copy.deepcopy(correction)
             mutate(changed)
-            catalog = load_json(ROOT / "metadata/releases/0.3.120.json")
+            catalog = published_catalog()
             catalog["entries"].append(changed)
             with self.assertRaises(WarehouseError):
                 validate_catalog(catalog, ROOT / "metadata/schema/artifact-catalog-v1.schema.json")
@@ -210,7 +218,7 @@ class ProofContractTests(unittest.TestCase):
             commit=provider_commit,
         )
         for entry in [sha, ts, provider]:
-            base = load_json(ROOT / "metadata/releases/0.3.120.json")
+            base = published_catalog()
             base["entries"].append(entry)
             validate_catalog(base, ROOT / "metadata/schema/artifact-catalog-v1.schema.json")
 
@@ -227,7 +235,7 @@ class ProofContractTests(unittest.TestCase):
             (provider, lambda row: row["asset"].update({"sha256": "e" * 64, "apiDigest": "sha256:" + "e" * 64})),
         ]
         for entry, mutate in mutations:
-            base = load_json(ROOT / "metadata/releases/0.3.120.json")
+            base = published_catalog()
             invalid = copy.deepcopy(entry)
             mutate(invalid)
             base["entries"].append(invalid)
@@ -236,7 +244,7 @@ class ProofContractTests(unittest.TestCase):
 
     def test_literal_q8b_rows_reject_identity_and_tree_mutations(self) -> None:
         for entry in [proof_entry(k=1), proof_entry(semver="9.0.0", correction_seed="e")]:
-            base = load_json(ROOT / "metadata/releases/0.3.120.json")
+            base = published_catalog()
             base["entries"].append(entry)
             validate_catalog(base, ROOT / "metadata/schema/artifact-catalog-v1.schema.json")
             identity_mutation = (

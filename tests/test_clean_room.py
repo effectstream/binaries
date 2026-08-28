@@ -34,6 +34,14 @@ from warehouse_lib import (  # noqa: E402
 from tests.test_proof_contract import proof_entry  # noqa: E402
 
 
+def published_catalog() -> dict:
+    catalog = load_json(ROOT / "metadata/releases/0.3.120.json")
+    catalog["entries"] = [
+        row for row in catalog["entries"] if row["publicationState"] == "published"
+    ]
+    return catalog
+
+
 class CleanRoomReadmeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -57,7 +65,7 @@ class CleanRoomReadmeTests(unittest.TestCase):
         }
 
     def planned_indexer(self, candidate: dict, *, family: str = "indexer-standalone", version: str = "9.9.9", archive: dict | None = None) -> tuple[dict, dict]:
-        catalog = load_json(ROOT / "metadata/releases/0.3.120.json")
+        catalog = published_catalog()
         contracts = load_json(ROOT / "metadata/contracts/families-v1.json")
         contract = next(row for row in contracts["softwareFamilies"] if row["family"] == family)
         name = contract["nameTemplate"].format(os="linux", arch="amd64", version=version)
@@ -323,7 +331,7 @@ class CleanRoomReadmeTests(unittest.TestCase):
 
         # Execute the documented state choreography without exposing the planned row
         # through the stable index and without skipping a transition.
-        base = load_json(ROOT / "metadata/releases/0.3.120.json")
+        base = published_catalog()
         validate_repository_state(planned_catalog, stable_index(planned_catalog), base)
         uploading = copy.deepcopy(planned_catalog)
         row = next(item for item in uploading["entries"] if item["publicationState"] == "planned")
@@ -353,7 +361,7 @@ class CleanRoomReadmeTests(unittest.TestCase):
         self.assertEqual(len(stable_index(published)["entries"]), 67)
 
     def test_readme_extension_future_k_and_static_revision_gates_execute(self) -> None:
-        catalog = load_json(ROOT / "metadata/releases/0.3.120.json")
+        catalog = published_catalog()
         family_contract = load_json(ROOT / "metadata/contracts/families-v1.json")
         extended_contract = copy.deepcopy(family_contract)
         extended_contract["softwareFamilies"].append({
