@@ -697,6 +697,25 @@ def ledger_member_manifest(members: list[dict[str, Any]]) -> str:
     return canonical_sha256({"schemaVersion": "ledger-static-member-manifest-v1", "members": rows})
 
 
+def validate_q8b_contract_identity(contract: dict[str, Any]) -> None:
+    ledger = contract["ledgerStatic"]
+    path = ROOT / ledger["memberManifestPath"]
+    expect(path.is_file() and path.resolve().is_relative_to(ROOT.resolve()), "Q8B semantic member manifest path is missing or escapes the repository")
+    semantic = load_json(path)
+    expected = {
+        "schemaVersion": "ledger-static-member-manifest-v1",
+        "members": [
+            {"path": row["path"], "bytes": row["bytes"], "sha256": row["sha256"], "mode": ledger["mode"]}
+            for row in sorted(ledger["members"], key=lambda item: item["path"])
+        ],
+    }
+    expect(semantic == expected, "Q8B semantic member manifest differs from the exact twelve contract rows")
+    expect(canonical_sha256(semantic) == ledger["memberManifestSha256"], "Q8B semantic member-manifest digest drift")
+    expect(ledger["memberManifestStatus"] == "reviewed-phase-3p-file-only-semantic-projection", "Q8B member manifest is not in the reviewed Phase-3p state")
+    expect(re.fullmatch(r"[0-9a-f]{64}", ledger["zipLayoutManifestSha256"]) is not None, "Q8B ZIP-layout manifest digest is invalid")
+    expect(isinstance(ledger["archiveBytes"], int) and ledger["archiveBytes"] > 0 and re.fullmatch(r"[0-9a-f]{64}", ledger["archiveSha256"]) is not None, "Q8B deterministic archive identity is invalid")
+
+
 def validate_archive_invariants(entry: dict[str, Any]) -> None:
     asset = entry["asset"]
     archive = entry["archive"]
@@ -1014,6 +1033,7 @@ def validate_catalog(
     expect(catalog.get("repository") == {"fullName": REPOSITORY, "id": REPOSITORY_ID, "nodeId": REPOSITORY_NODE_ID}, "catalog repository identity mismatch")
     expect(catalog.get("release") == {"tag": RELEASE_TAG, "id": RELEASE_ID, "nodeId": RELEASE_NODE_ID, "url": RELEASE_URL, "mutable": True}, "catalog release identity mismatch")
     proof_contract = proof_contract_override or load_json(ROOT / "metadata/contracts/proof-data-q8b-v1.json")
+    validate_q8b_contract_identity(proof_contract)
     family_contracts = family_contracts_override or load_json(ROOT / "metadata/contracts/families-v1.json")
     software_families = {row["family"]: row for row in family_contracts["softwareFamilies"]}
     seen_ids: set[str] = set()

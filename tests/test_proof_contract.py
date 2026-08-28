@@ -8,7 +8,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from warehouse_lib import WarehouseError, ledger_member_manifest, load_json, resolve_catalog, validate_catalog  # noqa: E402
+from warehouse_lib import WarehouseError, canonical_sha256, ledger_member_manifest, load_json, resolve_catalog, validate_catalog  # noqa: E402
 
 
 CONTRACT = load_json(ROOT / "metadata/contracts/proof-data-q8b-v1.json")
@@ -60,8 +60,8 @@ def proof_entry(*, k: int | None = None, semver: str | None = None, name: str | 
                 "evidenceSha256": "f" * 64,
             }
         semantic = f"ledger-static/{semver}/{manifest}"
-        digest = (correction_seed or "c") * 64
-        size = 1
+        digest = correction_seed * 64 if correction_seed else CONTRACT["ledgerStatic"]["archiveSha256"]
+        size = 1 if correction_seed else CONTRACT["ledgerStatic"]["archiveBytes"]
         source_repo = "midnightntwrk/midnight-ledger"
         source_commit = CONTRACT["srs"]["providerCommit"]
     return {
@@ -113,6 +113,15 @@ class ProofContractTests(unittest.TestCase):
         self.assertIsNone(objects[0]["officialAlias"])
         self.assertTrue(all(row["officialAlias"] == f"midnight-srs-2p{row['k']}" for row in objects[1:]))
         self.assertFalse(contract["exactCompatibility"]["static10Negative"]["static9Accepted"])
+        semantic = load_json(ROOT / contract["ledgerStatic"]["memberManifestPath"])
+        self.assertEqual(canonical_sha256(semantic), contract["ledgerStatic"]["memberManifestSha256"])
+        projected_members = [
+            {"path": row["path"], "size": row["bytes"], "sha256": row["sha256"], "installMode": contract["ledgerStatic"]["mode"]}
+            for row in contract["ledgerStatic"]["members"]
+        ]
+        self.assertEqual(ledger_member_manifest(projected_members), contract["ledgerStatic"]["memberManifestSha256"])
+        self.assertEqual(contract["ledgerStatic"]["archiveSha256"], "d7e8ccfdbc55a2b7139aadd4797d665f888a4502b63ebae24d23314eeee341b2")
+        self.assertEqual(contract["ledgerStatic"]["archiveBytes"], 21601265)
 
     def test_generation_and_static_revision_resolution(self) -> None:
         base = load_json(ROOT / "metadata/releases/0.3.120.json")
@@ -130,11 +139,12 @@ class ProofContractTests(unittest.TestCase):
         result = resolve_catalog(base, family=None, version=None, os_name=None, arch=None, variant=None, k=5, srs_generation="sha256:" + "d" * 64, ledger_static=None, member_manifest=None)
         self.assertEqual(result["assetName"], generation_2["asset"]["name"])
 
-        blocked_normal = proof_entry(semver="9.0.0")
-        blocked_catalog = load_json(ROOT / "metadata/releases/0.3.120.json")
-        blocked_catalog["entries"].append(blocked_normal)
-        with self.assertRaisesRegex(WarehouseError, "blocked until Phase-3p"):
-            validate_catalog(blocked_catalog, ROOT / "metadata/schema/artifact-catalog-v1.schema.json")
+        normal = proof_entry(semver="9.0.0")
+        normal_catalog = load_json(ROOT / "metadata/releases/0.3.120.json")
+        normal_catalog["entries"].append(normal)
+        validate_catalog(normal_catalog, ROOT / "metadata/schema/artifact-catalog-v1.schema.json")
+        self.assertEqual(normal["proofData"]["memberManifestSha256"], CONTRACT["ledgerStatic"]["memberManifestSha256"])
+        self.assertEqual(normal["asset"]["sha256"], CONTRACT["ledgerStatic"]["archiveSha256"])
 
         first = proof_entry(semver="9.0.0", correction_seed="a")
         second = proof_entry(semver="9.0.0", correction_seed="b")
