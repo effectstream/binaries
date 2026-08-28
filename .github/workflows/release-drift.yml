@@ -92,5 +92,5 @@ jobs:
             echo "- Workflow run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
             echo "- Conclusion: inspect the job conclusion above; the workflow has no write permission."
             echo
-            echo "On failure, \`acedward\` acknowledges this run by inspecting the retained summary, records the run ID/time, then follows the README enable → dispatch → fresh-success sequence."
+            echo "On failure, \`acedward\` acknowledges this run by inspecting the retained summary, records the run ID/time, then follows the docs/PUBLISHING.md enable → dispatch → fresh-success sequence."
           } >>"$GITHUB_STEP_SUMMARY"

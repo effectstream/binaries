@@ -1,5 +1,7 @@
 # Temporary owner handoff: Developer ID and notarization
 
+Permanent signing states and append-only publication policy are documented in [`docs/MACOS_SIGNING.md`](docs/MACOS_SIGNING.md). This temporary owner handoff remains until the signed-artifact workflow is completed and confirmed.
+
 > **DEVELOPMENT ONLY — NOT FOR PRODUCTION USE.** Initial macOS release assets have no Developer ID and may be blocked by Gatekeeper. Never modify or replace an existing `0.3.120` asset.
 
 This temporary file is for the owner performing the later signing step on a trusted macOS host. It contains no credential, identity, password, profile value, private key, or candidate-specific secret. Keep all working files outside Git in a mode-`0700` directory. Do not enable shell tracing and do not paste Keychain or notarization output containing private metadata into public logs.
