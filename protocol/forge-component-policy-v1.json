@@ -2,7 +2,7 @@
   "schemaVersion": "forge-component-policy-pin-v1",
   "repository": "acedward/midnight-binary-forge",
   "minimumCommitSha": "ddd2838d0226eeaaca8f7a42ad82cba1a132bbfe",
-  "policyRevisionCommitSha": "d8db4327958bc057db685714d116579a00947317",
+  "policyRevisionCommitSha": "030bbc624ef4079c09b7ab793d47d4abae0359a2",
   "audit": {
     "path": "audits/00002-binary-publication-pipeline-phase1-remediation.md",
     "sha256": "8277a72c892d9d8ea87e3276cd6a75f1470ec1b282ed8495a7d9add3b4a8db72",
@@ -20,7 +20,7 @@
     },
     {
       "path": "scripts/validate_catalog.py",
-      "sha256": "55b29484f82cf32bca3bcf6dabb7339d68a19fcca708a77505a7ed5508334d1e"
+      "sha256": "4b4c6215fb852dcbdfb12b899a724642747e143cb6a2527605d50c261ed49a06"
     }
   ],
   "testFixture": {
