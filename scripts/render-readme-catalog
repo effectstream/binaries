@@ -1,0 +1,109 @@
+#!/usr/bin/env python3
+"""Render README's stable file catalog from committed metadata/index.json."""
+
+from __future__ import annotations
+
+import argparse
+import difflib
+import json
+from pathlib import Path
+import re
+import sys
+from typing import NoReturn
+
+
+ROOT = Path(__file__).resolve().parents[1]
+README = ROOT / "README.md"
+INDEX = ROOT / "metadata/index.json"
+BEGIN = "<!-- BEGIN GENERATED CURRENT FILE CATALOG -->"
+END = "<!-- END GENERATED CURRENT FILE CATALOG -->"
+
+
+def fail(message: str) -> NoReturn:
+    raise SystemExit(f"render-readme-catalog: {message}")
+
+
+def render() -> str:
+    index = json.loads(INDEX.read_text(encoding="utf-8"))
+    entries = index.get("entries")
+    if not isinstance(entries, list):
+        fail("metadata/index.json entries must be an array")
+
+    required = {"artifactKind", "assetName", "semanticId", "sha256", "url"}
+    identities: set[tuple[str, str, str]] = set()
+    names: set[str] = set()
+    rows: list[dict[str, str]] = []
+    for entry in entries:
+        if not isinstance(entry, dict) or not required.issubset(entry):
+            fail("every stable-index entry must contain the catalog projection fields")
+        kind = entry["artifactKind"]
+        name = entry["assetName"]
+        semantic_id = entry["semanticId"]
+        sha256 = entry["sha256"]
+        url = entry["url"]
+        if kind not in {"software", "proof-data"}:
+            fail(f"unsupported artifact kind: {kind!r}")
+        if not all(isinstance(value, str) for value in (name, semantic_id, sha256, url)):
+            fail("catalog projection fields must be strings")
+        if not re.fullmatch(r"[0-9a-f]{64}", sha256):
+            fail(f"invalid SHA-256 for {name}")
+        if any(token in name for token in ("|", "[", "]", "(", ")", "\n", "\r")):
+            fail(f"asset name is not safe for a Markdown link: {name!r}")
+        identity = (name, url, sha256)
+        if identity in identities or name in names:
+            fail(f"duplicate stable catalog identity: {name}")
+        identities.add(identity)
+        names.add(name)
+        rows.append(entry)
+
+    rows.sort(key=lambda row: (row["artifactKind"], row["assetName"], row["semanticId"]))
+    software = sum(row["artifactKind"] == "software" for row in rows)
+    proof_data = sum(row["artifactKind"] == "proof-data" for row in rows)
+    lines = [
+        f"{len(rows)} files: {software} software and {proof_data} proof-data.",
+        "",
+        "| Kind | File | SHA-256 |",
+        "|---|---|---|",
+    ]
+    lines.extend(
+        f'| {row["artifactKind"]} | [{row["assetName"]}]({row["url"]}) | `{row["sha256"]}` |'
+        for row in rows
+    )
+    return "\n".join(lines)
+
+
+def expected_readme(current: str) -> str:
+    if current.count(BEGIN) != 1 or current.count(END) != 1:
+        fail("README must contain each generated catalog marker exactly once")
+    before, remainder = current.split(BEGIN, 1)
+    _generated, after = remainder.split(END, 1)
+    return f"{before}{BEGIN}\n{render()}\n{END}{after}"
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--check", action="store_true", help="fail if README is stale")
+    args = parser.parse_args()
+    current = README.read_text(encoding="utf-8")
+    expected = expected_readme(current)
+    if args.check:
+        if current == expected:
+            print("PASS README catalog matches metadata/index.json")
+            return 0
+        sys.stderr.writelines(
+            difflib.unified_diff(
+                current.splitlines(keepends=True),
+                expected.splitlines(keepends=True),
+                fromfile="README.md",
+                tofile="README.md (rendered)",
+            )
+        )
+        return 1
+    if current != expected:
+        README.write_text(expected, encoding="utf-8")
+    print("WROTE README catalog from metadata/index.json")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -40,6 +40,7 @@ jobs:
             previous_args=(--previous-catalog "$previous_catalog")
           fi
           scripts/validate-catalog "${previous_args[@]}"
+          scripts/render-readme-catalog --check
           python3 -m unittest discover -s tests -v
 
       - name: Consume the exact audited forge protocol fixture

@@ -43,6 +43,7 @@ class CleanRoomReadmeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        cls.index = load_json(ROOT / "metadata/index.json")
 
     def future_proposal(self, candidates: list[dict], *, binary_names: list[str], proof_names: list[str], family_contract: dict | None = None, proof_contract: dict | None = None) -> dict:
         family_contract = family_contract or load_json(ROOT / "metadata/contracts/families-v1.json")
@@ -159,28 +160,94 @@ class CleanRoomReadmeTests(unittest.TestCase):
         validate_receipt_bindings(receipt, manifest, allow_test_verification=True)
         return receipt
 
-    def test_warning_is_first_and_all_eleven_contracts_are_documented(self) -> None:
-        self.assertTrue(self.readme.startswith("> **DEVELOPMENT ONLY — NOT FOR PRODUCTION USE.**"))
-        required = [
+    def test_readme_is_warning_first_and_focused(self) -> None:
+        first_line = (
+            "> **DEVELOPMENT ONLY — NOT FOR PRODUCTION USE.** Release `0.3.120` is mutable; "
+            "verify every downloaded SHA-256 against committed metadata before installation or execution."
+        )
+        self.assertEqual(self.readme.splitlines()[0], first_line)
+        self.assertEqual(self.readme.count("<!-- BEGIN GENERATED CURRENT FILE CATALOG -->"), 1)
+        self.assertEqual(self.readme.count("<!-- END GENERATED CURRENT FILE CATALOG -->"), 1)
+        self.assertIn("## Current files", self.readme)
+        self.assertIn("## Documentation", self.readme)
+        for operator_heading in [
             "Permanent append-only rules", "Binary names, selectors, layouts, and coverage",
             "Choose the artifact operation", "Required metadata and evidence",
             "Prepare and validate a proposal", "Manual prerequisite and transaction sequence",
             "Executable examples and clean-room fixture", "Conflict, interruption, revocation, and drift",
             "macOS distribution signing", "Compact 0.34 direct-upstream policy", "Public proof-data guide",
-            "explicit live-upload authority", "effective write permission", "numeric ID", "node ID",
-            "inert", "mode-`0600` journal", "TOCTOU", "stable `published` catalog/index last",
-            "atomic", "MIDNIGHT_PP", "K24/K25", "static-10",
-            "--planned-catalog", "--candidate-bundle", "--resume-prerequisite-record",
-            "0.3.120-current.json", "run_id", "--created", 'gh run watch "$run_id"',
-        ]
-        for text in required:
-            self.assertIn(text, self.readme)
+        ]:
+            self.assertNotIn(operator_heading, self.readme)
 
-    def test_readme_linked_files_exist_and_example_executes(self) -> None:
-        links = re.findall(r"\[[^]]+\]\(([^)]+)\)", self.readme)
-        local = [link for link in links if not link.startswith(("https://", "http://", "#"))]
-        for link in local:
-            self.assertTrue((ROOT / link).exists(), link)
+    def test_generated_readme_catalog_exactly_matches_stable_index(self) -> None:
+        result = subprocess.run(
+            [str(ROOT / "scripts/render-readme-catalog"), "--check"],
+            cwd=ROOT, text=True, capture_output=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        rows = re.findall(
+            r"^\| (software|proof-data) \| \[([^]]+)\]\((https://[^)]+)\) \| `([0-9a-f]{64})` \|$",
+            self.readme,
+            flags=re.MULTILINE,
+        )
+        actual = [(kind, name, url, sha256) for kind, name, url, sha256 in rows]
+        expected = [
+            (entry["artifactKind"], entry["assetName"], entry["url"], entry["sha256"])
+            for entry in self.index["entries"]
+        ]
+        self.assertEqual(len(actual), 97)
+        self.assertEqual(len(set(actual)), 97)
+        self.assertEqual(sum(kind == "software" for kind, *_ in actual), 76)
+        self.assertEqual(sum(kind == "proof-data" for kind, *_ in actual), 21)
+        self.assertCountEqual(actual, expected)
+        for _kind, name, _url, sha256 in actual:
+            row = next(line for line in self.readme.splitlines() if f"[{name}]" in line)
+            self.assertEqual(row.count(f"[{name}]"), 1)
+            self.assertEqual(row.count(sha256), 1)
+
+    def test_document_split_retains_all_operator_contracts(self) -> None:
+        contracts = {
+            ROOT / "CONTRIBUTING.md": [
+                "Permanent append-only rules", "Binary names, selectors, layouts, and coverage",
+                "Choose the artifact operation", "Required metadata and evidence",
+                "Prepare and validate a proposal", "Executable examples and clean-room fixture",
+                "Compact 0.34 direct-upstream policy", "numeric ID", "node ID",
+            ],
+            ROOT / "docs/PUBLISHING.md": [
+                "Manual prerequisite and transaction sequence",
+                "Conflict, interruption, revocation, and drift", "explicit live-upload authority",
+                "effective write permission", "inert", "mode-`0600` journal", "TOCTOU",
+                "stable `published` catalog/index last", "--planned-catalog", "--candidate-bundle",
+                "--resume-prerequisite-record", "0.3.120-current.json", "run_id", "--created",
+                'gh run watch "$run_id"',
+            ],
+            ROOT / "docs/PROOF_DATA.md": [
+                "Public proof-data guide", "atomically replace", "MIDNIGHT_PP", "K24/K25", "static-10",
+            ],
+            ROOT / "docs/MACOS_SIGNING.md": [
+                "macOS distribution signing", "UNSIGNED_DEVELOPMENT_ONLY",
+                "DEVELOPER_ID_SIGNED_NOTARIZED_ONLINE_TICKET", "distinct family-conforming",
+            ],
+        }
+        for path, required in contracts.items():
+            text = path.read_text(encoding="utf-8")
+            for phrase in required:
+                self.assertIn(phrase, text, f"{phrase!r} missing from {path.relative_to(ROOT)}")
+
+    def test_all_documentation_relative_links_resolve(self) -> None:
+        markdown_files = [
+            ROOT / "README.md", ROOT / "CONTRIBUTING.md", ROOT / "MACOS.md",
+            ROOT / "docs/PUBLISHING.md", ROOT / "docs/PROOF_DATA.md", ROOT / "docs/MACOS_SIGNING.md",
+        ]
+        for source in markdown_files:
+            text = source.read_text(encoding="utf-8")
+            for link in re.findall(r"\[[^]]+\]\(([^)]+)\)", text):
+                if link.startswith(("https://", "http://", "mailto:", "#")):
+                    continue
+                target = link.split("#", 1)[0]
+                self.assertTrue((source.parent / target).exists(), f"{source.relative_to(ROOT)} -> {link}")
+
+    def test_documented_resolver_example_executes(self) -> None:
         result = subprocess.run(
             [str(ROOT / "scripts/resolve"), "--family", "indexer-standalone", "--version", "4.4.0-rc.1", "--os", "darwin", "--arch", "aarch64"],
             cwd=ROOT, text=True, capture_output=True,
