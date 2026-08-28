@@ -21,6 +21,7 @@
       "family": "avail-node",
       "nameTemplate": "avail-node-{os}-{arch}-v{version}.tar.gz",
       "archive": "tar.gz",
+      "members": ["avail-node-{os}-{arch}"],
       "installMode": "0755",
       "legacyExceptionsCataloged": true
     },
@@ -49,7 +50,9 @@
       "family": "midnight-node",
       "nameTemplate": "midnight-node-{os}-{arch}-{version}.zip",
       "archive": "zip",
-      "layout": "root versioned executable plus res/",
+      "executableMember": "midnight-node-{os}-{arch}-{version}",
+      "additionalPathPrefix": "res/",
+      "layout": "exact root versioned executable plus only res/ files/directories",
       "installMode": "0755"
     },
     {
@@ -67,7 +70,9 @@
       "variantTemplate": "midnight-proof-server-{os}-{arch}-ledger-{version}.zip",
       "variant": "ledger",
       "archive": "zip",
-      "layout": "one root versioned executable",
+      "members": ["midnight-proof-server-{os}-{arch}-{version}"],
+      "variantMembers": ["midnight-proof-server-{os}-{arch}-ledger-{version}"],
+      "layout": "one exact root versioned executable",
       "installMode": "0755",
       "newPublication": "deferred"
     }

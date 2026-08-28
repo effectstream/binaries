@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -25,6 +26,67 @@ class CatalogTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.catalog = load_json(ROOT / "metadata/releases/0.3.120.json")
         cls.schema = ROOT / "metadata/schema/artifact-catalog-v1.schema.json"
+
+    def known_software_catalog(self, family: str) -> tuple[dict, dict]:
+        contracts = load_json(ROOT / "metadata/contracts/families-v1.json")
+        contract = next(row for row in contracts["softwareFamilies"] if row["family"] == family)
+        catalog = copy.deepcopy(self.catalog)
+        if family == "midnight-node-toolkit":
+            entry = next(row for row in catalog["entries"] if row["family"] == "indexer-standalone" and row["platform"] == "linux/amd64")
+            entry["family"] = family
+            entry["version"] = "2.0.0-rc.4"
+            entry["variant"] = None
+            entry["semanticId"] = f"{family}/2.0.0-rc.4/linux/amd64"
+            name = contract["nameTemplate"].format(os="linux", arch="amd64", version=entry["version"])
+            entry["asset"]["name"] = name
+            entry["asset"]["downloadUrl"] = f"https://github.com/effectstream/binaries/releases/download/0.3.120/{name}"
+        else:
+            entry = next(row for row in catalog["entries"] if row["family"] == family)
+
+        coverage = next(tier for tier, platforms in contracts["coveragePolicy"].items() if entry["platform"] in platforms)
+        entry["coverageTier"] = coverage
+        entry["legacyProvenance"] = "known"
+        entry["source"] = {
+            "method": "build", "repository": "owner/source", "commitSha": "a" * 40,
+            "license": "Apache-2.0", "redistributionEvidence": "LICENSE@a",
+            "lockedDependenciesSha256": "b" * 64, "toolchain": "rustc@sha256:" + "c" * 64,
+            "flags": [], "native": True,
+        }
+        entry["evidence"] = {
+            "sourceManifest": "source-manifest.json", "checksums": "SHA256SUMS",
+            "provenance": "provenance.intoto.jsonl", "sbom": "sbom.spdx.json",
+            "memberLineage": None,
+        }
+        if entry["os"] == "macos":
+            entry["signing"] = {
+                "distributionSigningState": "UNSIGNED_DEVELOPMENT_ONLY",
+                "codeSignatureKind": "none", "cdhash": None, "authorities": [],
+                "teamId": None, "hardenedRuntime": False, "strictVerification": "fail",
+            }
+        values = {"os": entry["os"], "arch": entry["arch"], "version": entry["version"]}
+        if family == "midnight-node":
+            executable = contract["executableMember"].format(**values)
+            paths = [executable, "res/config.json"]
+        else:
+            templates = contract.get("variantMembers") if entry.get("variant") else contract["members"]
+            paths = [value.format(**values) for value in templates]
+            executable = paths[-1]
+        members = []
+        for path in paths:
+            is_executable = path == executable
+            members.append({
+                "path": path, "type": "file", "size": 1,
+                "sha256": hashlib.sha256(path.encode()).hexdigest(),
+                "storedMode": "0755" if is_executable else "0644",
+                "installMode": "0755" if is_executable else "0644",
+            })
+        entry["archive"] = {
+            "format": contract["archive"], "memberCount": len(members),
+            "expandedSize": sum(row["size"] for row in members),
+            "members": members, "legacyAnomalies": [],
+        }
+        entry["install"] = {"path": executable, "mode": "0755"}
+        return catalog, entry
 
     def test_exact_legacy_backfill(self) -> None:
         validate_catalog(self.catalog, self.schema)
@@ -117,30 +179,23 @@ class CatalogTests(unittest.TestCase):
                 validate_transition(before, after)
 
     def test_known_build_and_mirror_constraints_independent_of_forge(self) -> None:
-        changed = copy.deepcopy(self.catalog)
-        entry = changed["entries"][0]
-        entry["legacyProvenance"] = "known"
-        entry["source"] = {
-            "method": "build", "repository": "owner/source", "commitSha": "a" * 40,
-            "license": "Apache-2.0", "redistributionEvidence": "LICENSE@a",
-            "lockedDependenciesSha256": "b" * 64, "toolchain": "rustc 1.95.0",
-            "flags": [], "native": True,
-        }
+        changed, entry = self.known_software_catalog("avail-node")
         validate_catalog(changed)
         for missing in ["lockedDependenciesSha256", "toolchain", "flags", "native"]:
             invalid = copy.deepcopy(changed)
-            invalid["entries"][0]["source"].pop(missing)
+            target = next(row for row in invalid["entries"] if row["semanticId"] == entry["semanticId"])
+            target["source"].pop(missing)
             with self.assertRaises(WarehouseError, msg=missing):
                 validate_catalog(invalid)
 
-        mirror = copy.deepcopy(self.catalog)
-        entry = mirror["entries"][0]
-        entry["legacyProvenance"] = "known"
+        mirror, entry = self.known_software_catalog("avail-node")
         entry["source"] = {
             "method": "identity-mirror", "repository": "owner/source", "commitSha": "a" * 40,
             "license": "Apache-2.0", "redistributionEvidence": "LICENSE@a",
             "upstreamAssetId": 123, "upstreamAssetNodeId": "RA_upstream",
-            "upstreamAssetName": entry["asset"]["name"], "upstreamAssetSize": entry["asset"]["size"],
+            "upstreamAssetName": entry["asset"]["name"],
+            "upstreamAssetUrl": "https://github.com/owner/source/releases/download/v1/" + entry["asset"]["name"],
+            "upstreamAssetSize": entry["asset"]["size"],
             "upstreamAssetSha256": entry["asset"]["sha256"],
         }
         validate_catalog(mirror)
@@ -150,19 +205,101 @@ class CatalogTests(unittest.TestCase):
             ("upstreamAssetSha256", "f" * 64),
         ]:
             invalid = copy.deepcopy(mirror)
-            invalid["entries"][0]["source"][field] = value
+            target = next(row for row in invalid["entries"] if row["semanticId"] == entry["semanticId"])
+            target["source"][field] = value
             with self.assertRaises(WarehouseError, msg=field):
                 validate_catalog(invalid)
 
         renamed = copy.deepcopy(mirror)
-        source = renamed["entries"][0]["source"]
+        renamed_entry = next(row for row in renamed["entries"] if row["semanticId"] == entry["semanticId"])
+        source = renamed_entry["source"]
         source["method"] = "rename-only"
         source["upstreamAssetName"] = "upstream-original.tar.gz"
         source["renameMapping"] = {"from": "upstream-original.tar.gz", "to": entry["asset"]["name"]}
         validate_catalog(renamed)
-        renamed["entries"][0]["source"]["renameMapping"]["to"] = "wrong.tar.gz"
+        renamed_entry["source"]["renameMapping"]["to"] = "wrong.tar.gz"
         with self.assertRaises(WarehouseError):
             validate_catalog(renamed)
+
+    def test_known_software_coverage_layout_and_evidence_per_family(self) -> None:
+        families = load_json(ROOT / "metadata/contracts/families-v1.json")["softwareFamilies"]
+        for contract in families:
+            catalog, entry = self.known_software_catalog(contract["family"])
+            validate_catalog(catalog, self.schema)
+            for mutate in [
+                lambda row: row.update({"coverageTier": "optional" if row["coverageTier"] != "optional" else "required"}),
+                lambda row: row["evidence"].update({"provenance": None}),
+                lambda row: row["evidence"].update({"sbom": None}),
+                lambda row: (
+                    next(member for member in row["archive"]["members"] if member["path"] == row["install"]["path"]).update({"path": "nested/" + row["install"]["path"]}),
+                    row["install"].update({"path": "nested/" + row["install"]["path"]}),
+                ),
+            ]:
+                invalid = copy.deepcopy(catalog)
+                target = next(row for row in invalid["entries"] if row["semanticId"] == entry["semanticId"])
+                mutate(target)
+                with self.assertRaises(WarehouseError, msg=f"{contract['family']} mutation"):
+                    validate_catalog(invalid, self.schema)
+            if entry["os"] == "macos":
+                invalid = copy.deepcopy(catalog)
+                target = next(row for row in invalid["entries"] if row["semanticId"] == entry["semanticId"])
+                target["signing"] = {
+                    "distributionSigningState": "legacy-unverified", "codeSignatureKind": "unknown",
+                    "cdhash": None, "authorities": [], "teamId": None,
+                    "hardenedRuntime": None, "strictVerification": "unknown",
+                }
+                with self.assertRaises(WarehouseError):
+                    validate_catalog(invalid)
+
+    def test_repackage_requires_exact_typed_two_run_transformation(self) -> None:
+        catalog, entry = self.known_software_catalog("midnight-node-toolkit")
+        member = entry["archive"]["members"][0]
+        member["timestamp"] = "1980-01-01T00:00:00Z"
+        upstream_name = "midnight-node-toolkit-linux-x86_64.tar.gz"
+        upstream_url = "https://github.com/owner/source/releases/download/v1/" + upstream_name
+        digest = entry["asset"]["sha256"]
+        entry["source"] = {
+            "method": "repackage", "repository": "owner/source", "commitSha": "a" * 40,
+            "license": "Apache-2.0", "redistributionEvidence": "LICENSE@a",
+            "upstreamAssetId": 123, "upstreamAssetNodeId": "RA_upstream",
+            "upstreamAssetName": upstream_name, "upstreamAssetUrl": upstream_url,
+            "upstreamAssetSize": 99, "upstreamAssetSha256": "d" * 64,
+            "repackage": {
+                "schemaVersion": "deterministic-repackage-v1", "algorithm": "copy-verified-members-v1",
+                "archiveFormat": "zip", "compression": "deflate-level-9",
+                "memberOrder": "utf8-bytewise-lexicographic", "timestampPolicy": "zip-dos-epoch-1980-01-01T00:00:00Z",
+                "pathPolicy": "exact-mapping-only", "outputSize": entry["asset"]["size"],
+                "members": [{
+                    "inputAssetId": 123, "inputAssetNodeId": "RA_upstream", "inputAssetName": upstream_name,
+                    "inputAssetUrl": upstream_url, "inputAssetSize": 99, "inputAssetSha256": "d" * 64,
+                    "inputMemberPath": "midnight-node-toolkit", "inputMemberSize": member["size"],
+                    "inputMemberSha256": member["sha256"], "outputPath": member["path"],
+                    "outputSize": member["size"], "outputSha256": member["sha256"],
+                    "storedMode": "0755", "installMode": "0755", "timestamp": member["timestamp"],
+                }],
+                "twoRun": {
+                    "run1Sha256": digest, "run2Sha256": digest, "independentReadbackSha256": digest,
+                    "run1Runner": "ubuntu-24.04-a", "run2Runner": "ubuntu-24.04-b",
+                },
+            },
+        }
+        entry["evidence"]["memberLineage"] = "member-lineage.json"
+        validate_catalog(catalog, self.schema)
+        for mutate in [
+            lambda row: row["source"].pop("repackage"),
+            lambda row: row["evidence"].update({"provenance": None}),
+            lambda row: row["source"]["repackage"]["members"][0].update({"outputPath": "wrong"}),
+            lambda row: row["source"]["repackage"]["members"][0].update({"inputMemberSha256": "e" * 64}),
+            lambda row: row["source"]["repackage"]["members"][0].update({"timestamp": "1980-01-02T00:00:00Z"}),
+            lambda row: row["source"]["repackage"]["twoRun"].update({"run2Sha256": "e" * 64}),
+            lambda row: row["source"]["repackage"]["twoRun"].update({"run2Runner": "ubuntu-24.04-a"}),
+            lambda row: row["source"].update({"upstreamAssetName": "other.zip"}),
+        ]:
+            invalid = copy.deepcopy(catalog)
+            target = next(row for row in invalid["entries"] if row["semanticId"] == entry["semanticId"])
+            mutate(target)
+            with self.assertRaises(WarehouseError):
+                validate_catalog(invalid, self.schema)
 
     def test_warning_and_macos_signing_states(self) -> None:
         changed = copy.deepcopy(self.catalog)
@@ -200,6 +337,11 @@ class CatalogTests(unittest.TestCase):
             lambda value: value["signing"].update({"codeSignatureKind": "none"}),
             lambda value: value["signing"]["notarization"]["onlineTicket"].update({"result": "fail"}),
             lambda value: value["signing"]["notarization"].pop("submissionId"),
+            lambda value: value["signing"]["notarization"].update({"submissionId": "-" * 36}),
+            lambda value: value["signing"]["notarization"].update({"completedAt": "2026-08-27T23:59:00Z"}),
+            lambda value: value["signing"]["notarization"]["onlineTicket"].update({"checkedAt": "2026-08-28T00:00:30Z"}),
+            lambda value: value["signing"]["notarization"]["gatekeeper"].update({"checkedAt": "2026-08-28T00:00:30Z"}),
+            lambda value: value["signing"]["notarization"]["quarantinedDownloadSmoke"].update({"checkedAt": "2026-08-28T00:00:30Z"}),
         ]:
             invalid = copy.deepcopy(signed)
             mutate(invalid)
@@ -246,6 +388,10 @@ class CatalogTests(unittest.TestCase):
             dict(family=None, version=None, os_name=None, arch=None, variant=None, k=None, srs_generation="sha256:" + "a" * 64, ledger_static=None, member_manifest=None),
             dict(family=None, version=None, os_name=None, arch=None, variant=None, k=None, srs_generation=None, ledger_static=None, member_manifest="a" * 64),
             dict(family="indexer-standalone", version=None, os_name="linux", arch="amd64", variant=None, k=None, srs_generation=None, ledger_static=None, member_manifest=None),
+            dict(family=None, version=None, os_name=None, arch=None, variant=None, k=5, srs_generation="", ledger_static=None, member_manifest=None),
+            dict(family=None, version=None, os_name=None, arch=None, variant=None, k=None, srs_generation=None, ledger_static="", member_manifest="a" * 64),
+            dict(family="indexer-standalone", version="", os_name="linux", arch="amd64", variant=None, k=None, srs_generation=None, ledger_static=None, member_manifest=None),
+            dict(family="indexer-standalone", version="4.4.0-rc.1", os_name="linux", arch="amd64", variant="", k=None, srs_generation=None, ledger_static=None, member_manifest=None),
         ]
         for arguments in calls:
             with self.assertRaises(WarehouseError):
@@ -267,6 +413,43 @@ class CatalogTests(unittest.TestCase):
         revoked = copy.deepcopy(self.catalog)
         revoked["entries"][0]["publicationState"] = "revoked"
         validate_repository_state(revoked, stable_index(revoked), self.catalog)
+
+    def test_planned_rows_and_global_destination_identities_are_exact(self) -> None:
+        _, entry = self.known_software_catalog("indexer-standalone")
+        planned = copy.deepcopy(self.catalog)
+        entry = copy.deepcopy(entry)
+        entry["version"] = "9.9.9"
+        entry["semanticId"] = "indexer-standalone/9.9.9/linux/amd64"
+        name = "indexer-standalone-linux-amd64-v9.9.9.zip"
+        inner = name.removesuffix(".zip")
+        entry["asset"] = {"name": name, "state": "candidate", "size": 7, "sha256": "a" * 64}
+        entry["publicationState"] = "planned"
+        entry["archive"] = {"format": "zip", "memberCount": 1, "expandedSize": 1, "members": [{
+            "path": inner, "type": "file", "size": 1, "sha256": "b" * 64,
+            "storedMode": "0755", "installMode": "0755",
+        }], "legacyAnomalies": []}
+        entry["install"] = {"path": inner, "mode": "0755"}
+        planned["entries"].append(entry)
+        planned["entries"].sort(key=lambda row: row["semanticId"])
+        validate_catalog(planned, self.schema)
+        validate_repository_state(planned, stable_index(planned), self.catalog)
+        self.assertEqual(len(stable_index(planned)["entries"]), len(self.catalog["entries"]))
+
+        for mutate in [
+            lambda row: row["asset"].update({"id": 999}),
+            lambda row: row["asset"].update({"state": "uploaded"}),
+            lambda row: row["asset"].pop("sha256"),
+        ]:
+            invalid = copy.deepcopy(planned)
+            mutate(next(row for row in invalid["entries"] if row["publicationState"] == "planned"))
+            with self.assertRaises(WarehouseError):
+                validate_catalog(invalid, self.schema)
+
+        for identity_field in ["id", "nodeId"]:
+            invalid = copy.deepcopy(self.catalog)
+            invalid["entries"][1]["asset"][identity_field] = invalid["entries"][0]["asset"][identity_field]
+            with self.assertRaises(WarehouseError):
+                validate_catalog(invalid, self.schema)
 
 
 if __name__ == "__main__":

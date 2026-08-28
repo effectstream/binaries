@@ -50,6 +50,15 @@ def proof_entry(*, k: int | None = None, semver: str | None = None, name: str | 
             "memberManifestSha256": manifest, "ledgerStaticRevision": f"manifest-sha256:{manifest}",
             "installedPath": ".", "installedMode": "0644", "exactConsumers": exact_consumers(),
         }
+        if correction_seed:
+            proof["correctionCompatibility"] = {
+                "schemaVersion": "ledger-static-correction-compatibility-v1",
+                "memberManifestSha256": manifest,
+                "sourceCommit": CONTRACT["srs"]["providerCommit"],
+                "imageDigests": sorted(row["imageDigest"] for row in exact_consumers()),
+                "result": "pass", "evidenceRef": f"compatibility-{manifest}.json",
+                "evidenceSha256": "f" * 64,
+            }
         semantic = f"ledger-static/{semver}/{manifest}"
         digest = (correction_seed or "c") * 64
         size = 1
@@ -78,6 +87,17 @@ def exact_consumers() -> list[dict]:
          "ledgerStaticSemver": "9.0.0", "cacheNamespace": "9"}
         for digest in ["sha256:d96a4d0f3f0f10f82698288443f2873a32fed180eb8f93c0bae83572c0a187a9", "sha256:4f02ca2734649eb238d13924df299b1c82bd5546ec928c5d67bdd0ce86dd0bd1"]
     ]
+
+
+def retarget_correction(entry: dict, *, name: str, generation: str, repository: str, commit: str) -> dict:
+    entry = copy.deepcopy(entry)
+    entry["asset"]["name"] = name
+    entry["asset"]["downloadUrl"] = f"https://github.com/effectstream/binaries/releases/download/0.3.120/{name}"
+    entry["proofData"]["srsGeneration"] = generation
+    entry["semanticId"] = f"srs/{entry['proofData']['k']}/{generation.replace('@', '-').replace(':', '-')}"
+    entry["source"]["repository"] = repository
+    entry["source"]["commitSha"] = commit
+    return entry
 
 
 class ProofContractTests(unittest.TestCase):
@@ -136,6 +156,73 @@ class ProofContractTests(unittest.TestCase):
         base["entries"].append(invalid)
         with self.assertRaises(WarehouseError):
             validate_catalog(base)
+
+        correction = proof_entry(semver="9.0.0", correction_seed="d")
+        for mutate in [
+            lambda row: row["proofData"].pop("correctionCompatibility"),
+            lambda row: row["proofData"]["correctionCompatibility"].update({"memberManifestSha256": "e" * 64}),
+            lambda row: row["proofData"]["correctionCompatibility"].update({"sourceCommit": "e" * 40}),
+            lambda row: row["proofData"]["correctionCompatibility"].update({"imageDigests": ["sha256:" + "e" * 64]}),
+            lambda row: row["proofData"]["correctionCompatibility"].update({"result": "fail"}),
+            lambda row: row["proofData"]["correctionCompatibility"].update({"evidenceSha256": "bad"}),
+            lambda row: [consumer.update({"sourceCommit": "cd652d7" + "0" * 33, "ledgerStaticSemver": "10.0.0", "cacheNamespace": "10"}) for consumer in row["proofData"]["exactConsumers"]],
+        ]:
+            changed = copy.deepcopy(correction)
+            mutate(changed)
+            catalog = load_json(ROOT / "metadata/releases/0.3.120.json")
+            catalog["entries"].append(changed)
+            with self.assertRaises(WarehouseError):
+                validate_catalog(catalog, ROOT / "metadata/schema/artifact-catalog-v1.schema.json")
+
+    def test_srs_correction_tokens_bind_generation_bytes_source_and_alias(self) -> None:
+        trusted_repo = CONTRACT["srs"]["trustedSetupRepository"]
+        provider_repo = CONTRACT["srs"]["providerRepository"]
+        trusted_commit = "a" * 40
+        provider_commit = "b" * 40
+        digest = "d" * 64
+        sha = proof_entry(
+            k=5,
+            name=f"midnight-srs-noarch-2p5-sha256-{digest}.bin",
+            generation=f"sha256:{digest}",
+        )
+        ts = retarget_correction(
+            sha,
+            name=f"midnight-srs-noarch-2p5-ts-{trusted_commit}.bin",
+            generation=f"midnight-trusted-setup@{trusted_commit}",
+            repository=trusted_repo,
+            commit=trusted_commit,
+        )
+        provider = retarget_correction(
+            sha,
+            name=f"midnight-srs-noarch-2p5-provider-{provider_commit}-sha256-{digest}.bin",
+            generation=f"midnight-ledger-provider-compat@{provider_commit}/sha256:{digest}",
+            repository=provider_repo,
+            commit=provider_commit,
+        )
+        for entry in [sha, ts, provider]:
+            base = load_json(ROOT / "metadata/releases/0.3.120.json")
+            base["entries"].append(entry)
+            validate_catalog(base, ROOT / "metadata/schema/artifact-catalog-v1.schema.json")
+
+        mutations = [
+            (sha, lambda row: row["proofData"].update({"srsGeneration": "sha256:" + "e" * 64})),
+            (sha, lambda row: row["proofData"].update({"officialAlias": "midnight-srs-2p6"})),
+            (sha, lambda row: row["source"].update({"commitSha": "e" * 40})),
+            (ts, lambda row: row["proofData"].update({"srsGeneration": "midnight-trusted-setup@" + "e" * 40})),
+            (ts, lambda row: row["source"].update({"repository": provider_repo})),
+            (ts, lambda row: row["source"].update({"commitSha": "e" * 40})),
+            (provider, lambda row: row["proofData"].update({"srsGeneration": f"midnight-ledger-provider-compat@{provider_commit}/sha256:" + "e" * 64})),
+            (provider, lambda row: row["source"].update({"repository": trusted_repo})),
+            (provider, lambda row: row["source"].update({"commitSha": "e" * 40})),
+            (provider, lambda row: row["asset"].update({"sha256": "e" * 64, "apiDigest": "sha256:" + "e" * 64})),
+        ]
+        for entry, mutate in mutations:
+            base = load_json(ROOT / "metadata/releases/0.3.120.json")
+            invalid = copy.deepcopy(entry)
+            mutate(invalid)
+            base["entries"].append(invalid)
+            with self.assertRaises(WarehouseError):
+                validate_catalog(base, ROOT / "metadata/schema/artifact-catalog-v1.schema.json")
 
     def test_literal_q8b_rows_reject_identity_and_tree_mutations(self) -> None:
         for entry in [proof_entry(k=1), proof_entry(semver="9.0.0", correction_seed="e")]:

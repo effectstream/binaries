@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 set -euo pipefail
+export GH_HOST=github.com
 
 repo="effectstream/binaries"
 workflow="release-drift.yml"
@@ -77,9 +78,9 @@ if [[ -n $fixture ]]; then
   cp -- "$fixture" "$payload"
 else
   # GET only: this checker never enables, dispatches, or otherwise mutates a workflow.
-  gh api "repos/$repo/actions/workflows/$workflow" >"$workflow_json"
+  gh api --hostname github.com "repos/$repo/actions/workflows/$workflow" >"$workflow_json"
   workflow_id=$(jq -er '.id' "$workflow_json")
-  gh api "repos/$repo/actions/workflows/$workflow_id/runs?per_page=1" >"$runs_json"
+  gh api --hostname github.com "repos/$repo/actions/workflows/$workflow_id/runs?per_page=1" >"$runs_json"
   jq -n \
     --slurpfile workflow "$workflow_json" \
     --slurpfile runs "$runs_json" '

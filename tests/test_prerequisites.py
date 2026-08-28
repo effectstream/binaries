@@ -32,11 +32,11 @@ class PrerequisiteTests(unittest.TestCase):
             #!/bin/sh
             if [ "$1" = "--version" ]; then echo 'gh version fixture'; exit 0; fi
             if [ "$1 $2 $3" = "auth status --hostname" ]; then exit 0; fi
-            if [ "$1 $2 $3 $4" = "api user --jq .login" ]; then echo acedward; exit 0; fi
-            if [ "$1 $2" = "api repos/effectstream/binaries" ]; then
+            if [ "$1 $2 $3 $4 $5 $6" = "api --hostname github.com user --jq .login" ]; then echo acedward; exit 0; fi
+            if [ "$1 $2 $3 $4" = "api --hostname github.com repos/effectstream/binaries" ]; then
               echo '{{"full_name":"effectstream/binaries","id":1117580582,"node_id":"R_kgDOQpztJg","permissions":{{"admin":{str(permission).lower()},"maintain":false,"push":false}}}}'; exit 0
             fi
-            if [ "$1 $2" = "api repos/effectstream/binaries/releases/tags/0.3.120" ]; then
+            if [ "$1 $2 $3 $4" = "api --hostname github.com repos/effectstream/binaries/releases/tags/0.3.120" ]; then
               echo '{{"tag_name":"0.3.120","id":270761136,"node_id":"RE_kwDOQpztJs4QI3yw","draft":false,"prerelease":false,"immutable":false}}'; exit 0
             fi
             echo unexpected gh arguments >&2; exit 9

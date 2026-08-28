@@ -12,8 +12,10 @@ Release `0.3.120` is intentionally mutable as a location. A URL is not an identi
 
 - The only canonical destination is repository `effectstream/binaries` (numeric ID `1117580582`, node ID `R_kgDOQpztJg`) and release `0.3.120` (numeric ID `270761136`, node ID `RE_kwDOQpztJs4QI3yw`). There is no successor release and no `legacyLocations` fallback.
 - Never overwrite, delete, replace, rename, or use `--clobber` on an existing asset. Corrected bytes, changed source, a new proof-data generation, or later Developer-ID signing require a new family-conforming version/name and catalog row.
-- Publication state is `planned → uploading → verified → published`, plus `revoked`. Stable resolution returns only `published`. Partial state exists only in a local mode-`0600` journal.
+- Publication state is `planned → uploading → verified → published`, plus `revoked`. Stable resolution returns only `published`. Per-asset upload progress exists only in a local mode-`0600` journal.
 - Every catalog row and resolver result is `distributionTier=development-only` and `releaseMutability=mutable-warehouse`.
+
+A reviewed `planned` catalog row exposes only the candidate basename, `state=candidate`, exact byte count, and SHA-256; destination URLs and asset IDs do not exist yet and must not be invented. The upload remains journal-only while in flight. After complete independent read-back, a reviewed `uploading → verified` change fills the observed destination identity, and a final reviewed `verified → published` change updates the stable index. CI compares each catalog change with the reviewed PR base and rejects skipped or reversed transitions; running the validator locally uses the merge-base with `origin/main`, so fetch the current base first or pass `--previous-catalog` explicitly. Only the one-time first-catalog PR whose reviewed base contains no catalog reconstructs its exact prior 66 rows from the immutable independent-download baseline.
 
 The schemas, exact backfill, stable index, family contracts, proof-data contract, and initial proposal are:
 
@@ -58,10 +60,10 @@ Use exactly one operation and record it:
 | `build` | source must be compiled | full source SHA/tag, locked dependency set, compiler/toolchain/image digest, flags/features, native runner label/OS/arch, reproducibility and license/runtime closure |
 | `identity-mirror` | upstream bytes and name are retained | upstream repository/release/object and asset ID/node ID/name/URL/size/SHA-256; output digest must equal input |
 | `rename-only` | upstream bytes are retained under an approved warehouse name | all identity-mirror fields, explicit old/new name mapping, output digest equal to input |
-| `repackage` | approved upstream members are placed in the family archive contract | exact input identities/digests, deterministic member/mode/timestamp transform, two-run result and license/runtime closure |
+| `repackage` | approved upstream members are placed in the family archive contract | typed `deterministic-repackage-v1` record: exact input asset ID/node/name/URL/size/digest; each input member path/size/digest mapped to one exact output path/size/digest/mode/fixed timestamp; fixed archive algorithm/compression/order/path policy; outer size/digest; distinct-runner two-run digests plus independent read-back; source manifest, checksums, provenance, member lineage, license/runtime closure, and software SBOM |
 | `assemble-data` | public noarch objects form a structured deterministic archive | every source URL/path/size/hash/destination/mode, lineage/license evidence, deterministic member-manifest digest |
 
-Do not use `identity-mirror` if bytes change. Do not use `repackage` to hide an unknown source. No payload moves forward until redistribution/license evidence and software runtime closure (or proof-data public lineage) are reviewed.
+Do not use `identity-mirror` if bytes change. Do not use `repackage` to hide an unknown source. A repackage record is invalid if any mapped byte, path, mode, timestamp, input identity, output identity, or either independent run differs. Known/new software rows must also match the machine-readable family coverage tier and exact archive/install layout. No payload moves forward until redistribution/license evidence and software runtime closure (or proof-data public lineage) are reviewed.
 
 ## 4. Required metadata and evidence
 
@@ -89,6 +91,8 @@ scripts/validate-catalog
 scripts/resolve --family indexer-standalone --version 4.4.0-rc.1 --os darwin --arch aarch64
 ```
 
+For a new publication, commit the exact proposal and hidden planned catalog rows on the reviewed branch first. A future family, K, or static revision is valid only when that same review extends the corresponding machine-readable contract and binds the proposal to the new contract digests. CI exercises the real proposal/planned-catalog/preflight boundary; changing only a README example, outer filename, or claimed hash cannot authorize arbitrary bytes.
+
 The resolver returns exactly one published `0.3.120` URL and SHA-256. It never guesses across OS, architecture, version, variant, K, SRS generation, or Ledger-static revision. Download to a new temporary directory, hash before extraction, then use a bounded family-aware extractor.
 
 `Compact` and `compactc` proposals fail validation. Compact 0.34 is downloaded directly from the official LFDT-Minokawa `compactc-v0.34.0` release by pinned upstream asset identity/digest. It must never be built, mirrored, repackaged, uploaded, or cataloged here.
@@ -99,7 +103,7 @@ The following sequence is mandatory and ordered. Candidate bytes are inert: neve
 
 1. Obtain explicit live-upload authority naming the repo/release/candidate. Record a non-secret authority reference. Fetch the reviewed warehouse PR, confirm the exact full commit SHA, clean worktree, and exact `origin`.
 2. Confirm GitHub host/account/effective write permission and exact repo/release numeric+node identities. Authentication reports are suppressed to avoid credential metadata.
-3. Independently verify the allowlisted immutable forge repository/workflow/ref/full SHA, candidate release/tag/ID/node ID/immutable state, canonical envelope, source manifest, checksums, staging asset-list digest, raw attestation bundle, and every inert asset size/digest. The warehouse consumes the exact audited promotion implementation pinned by [`protocol/forge-promotion-envelope-v1.json`](protocol/forge-promotion-envelope-v1.json) and separately requires the candidate issuer to contain or descend from the independently audited component-policy remediation pinned by [`protocol/forge-component-policy-v1.json`](protocol/forge-component-policy-v1.json). The exact remediated component/build schemas and validator blobs must also match that second pin. The warehouse does not redefine forge canonicalization, and a pre-remediation, unrelated, dirty, or regressed issuer is rejected.
+3. Independently verify the allowlisted immutable forge repository/workflow/ref/full SHA, candidate release/tag/ID/node ID/immutable state, canonical envelope, source manifest, checksums, staging asset-list digest, raw attestation bundle, and every inert asset size/digest. The preflight command itself freshly queries `github.com`, downloads the staging artifact and every candidate-release asset, compares those bytes with the local candidate, and reruns the raw protocol/attestation verifier; it never trusts an operator-supplied verification record. The warehouse consumes the exact audited promotion implementation pinned by [`protocol/forge-promotion-envelope-v1.json`](protocol/forge-promotion-envelope-v1.json) and separately requires the candidate issuer to contain or descend from the independently audited component-policy remediation pinned by [`protocol/forge-component-policy-v1.json`](protocol/forge-component-policy-v1.json). The exact remediated component/build schemas and validator blobs must also match that second pin. The warehouse does not redefine forge canonicalization, and a pre-remediation, unrelated, dirty, or regressed issuer is rejected.
 4. Capture the complete FR-039 snapshot through all pages. It binds repository/release/body identities plus every legacy asset ID/node ID/name/state/size/API and independent download digest/API URL/download URL/content type/timestamps. A partial name-only inventory is invalid.
 5. Run complete-set zero-write preflight. It reports every absent, identical no-op, and conflicting candidate name. Any conflict creates no release write, journal, catalog state, or stable index change.
 6. Bind explicit authority, exact proposal, canonical candidate/envelope/list, complete snapshot hash, and intended warning-body digest into a mode-`0600` receipt. Type the exact receipt-hash confirmation.
@@ -123,15 +127,6 @@ scripts/check-manual-publisher-prereqs.sh \
   --reviewed-head "$REVIEWED_HEAD" --authority-ref "$AUTHORITY_REF" \
   --output "$RECEIPT_DIR/prerequisite.json"
 
-scripts/verify-candidate \
-  --forge-checkout "$FORGE_CHECKOUT" \
-  --forge-component-checkout "$FORGE_COMPONENT_CHECKOUT" \
-  --envelope "$CANDIDATE_DIR/promotion-envelope-initial-31-v1.json" \
-  --bundle "$CANDIDATE_DIR/attestation-initial-31-v1.sigstore.json" \
-  --live-evidence "$CANDIDATE_DIR/promotion-live-evidence-initial-31-v1.json" \
-  --content-dir "$CANDIDATE_DIR/content" \
-  --output "$RECEIPT_DIR/candidate-verification.json"
-
 scripts/snapshot-0.3.120 --output "$RECEIPT_DIR/preflight-snapshot.json" \
   --independent-downloads
 
@@ -139,11 +134,13 @@ scripts/preflight-upload \
   --candidate-dir "$CANDIDATE_DIR/payloads" \
   --candidate-manifest "$CANDIDATE_DIR/candidate-assets.json" \
   --proposal metadata/proposals/initial-31-v1.json \
+  --planned-catalog "$CANDIDATE_DIR/planned-catalog.json" \
   --snapshot "$RECEIPT_DIR/preflight-snapshot.json" \
   --candidate-envelope "$CANDIDATE_DIR/promotion-envelope-initial-31-v1.json" \
   --authority "$AUTHORITY_REF" \
   --prerequisite-record "$RECEIPT_DIR/prerequisite.json" \
-  --candidate-verification-record "$RECEIPT_DIR/candidate-verification.json" \
+  --candidate-bundle "$CANDIDATE_DIR/attestation-initial-31-v1.sigstore.json" \
+  --forge-checkout "$FORGE_CHECKOUT" \
   --forge-component-checkout "$FORGE_COMPONENT_CHECKOUT" \
   --intended-release-body metadata/templates/release-body.md \
   --receipt "$RECEIPT_DIR/receipt.json" \
@@ -164,7 +161,11 @@ scripts/verify-release --receipt "$RECEIPT_DIR/receipt.json" \
 scripts/check-drift
 ```
 
-The prerequisite and candidate-verification records are canonical, mode-`0600`, and digest-bound into the receipt. Preflight and upload repeat the live checkout/account/repository/release/component-policy checks so a record captured in an earlier state cannot authorize a later state. The candidate-envelope and intended-body digests are always computed from the exact verified files; no operator-supplied digest can substitute them. Keep receipt/journal directories outside Git at `0700`; receipt/journal files are atomically written and fsynced at `0600`. Retain a sanitized final receipt/journal as audit evidence, never authentication output or response headers that may reveal credential metadata.
+Preflight issues no receipt until the live release body is the exact committed warning-body template. If the current body is still the reviewed old value, stop before preflight, apply only the exact `metadata/templates/release-body.md` body under separate confirmed authority, read the release back into a new full snapshot, and run the fresh prerequisite/preflight sequence into new files. An arbitrary pre-existing body, the old body, or any other release drift cannot be folded into a receipt or carried into asset creation.
+
+The prerequisite and freshly generated candidate-verification records are canonical, mode-`0600`, and digest-bound into the receipt. Preflight and upload repeat the live checkout/account/repository/release/component-policy checks so a record captured in an earlier state cannot authorize a later state. The candidate-envelope, planned-catalog, and intended-body digests are always computed from the exact verified files; no operator-supplied digest can substitute them. Keep receipt/journal directories outside Git at `0700`; receipt/journal files are new-only, atomically written and fsynced at `0600`. Retain a sanitized final receipt/journal as audit evidence, never authentication output or response headers that may reveal credential metadata.
+
+The typed transaction records are defined by [`publisher-prerequisite-v1`](metadata/schema/publisher-prerequisite-v1.schema.json), [`promotion-live-evidence-v1`](metadata/schema/promotion-live-evidence-v1.schema.json), [`candidate-verification-v1`](metadata/schema/candidate-verification-v1.schema.json), [`promotion-receipt-v1`](metadata/schema/promotion-receipt-v1.schema.json), and [`promotion-journal-v1`](metadata/schema/promotion-journal-v1.schema.json). Duplicate JSON keys, unknown fields, missing live identities, stale prerequisite records, digest rebinding, or a broken journal event chain fail closed.
 
 ## 7. Executable examples and clean-room fixture
 
@@ -173,7 +174,7 @@ CI executes the resolver example above and [`tests/test_clean_room.py`](tests/te
 ## 8. Conflict, interruption, revocation, and drift
 
 - Identical existing name+size+digest is a no-op. A same name with different bytes is a hard conflict; never replace it.
-- After interruption, run `scripts/reconcile-upload` with the receipt and a fresh full snapshot. If and only if it reports the exact same-receipt candidate additions plus absent names and zero foreign/repository/release/body/pagination/legacy drift, repeat the same `scripts/upload-0.3.120` command with `--resume`. The existing mode-`0600` journal and exact receipt hash preserve lineage. A fresh transaction uses a new snapshot, prerequisite/candidate records, receipt, and journal. Foreign bytes or changed legacy fields hard-stop.
+- After interruption, run `scripts/reconcile-upload` with the receipt and a fresh full snapshot. If and only if it reports the exact same-receipt candidate additions plus absent names and zero foreign/repository/release/body/pagination/legacy drift, rerun the prerequisite probe into a new private record and repeat the same `scripts/upload-0.3.120` command with `--resume --resume-prerequisite-record /absolute/private/new-prerequisite.json`. The authenticated existing mode-`0600` journal, nonce, event hash chain, and exact receipt hash preserve lineage. A fresh transaction uses a new snapshot, prerequisite/candidate records, receipt, and journal. Foreign bytes or changed legacy fields hard-stop.
 - A revoked artifact remains in the release/catalog as evidence, changes to `revoked`, disappears from stable resolution, and gets a reviewed incident advisory. A corrected new version/name is appended only after that PR.
 - Consumer digest rejection is immediate. The daily read-only workflow provides best-effort detection within 24 hours plus GitHub delay. GitHub may disable schedules after 60 inactive days, so `acedward` runs the heartbeat at least weekly and before every upload or demo. Schedule-stop detection is bounded only by that check.
 
@@ -186,13 +187,25 @@ A green badge is not fresh evidence. Disabled, missing, failed, or older-than-36
 
 ```sh
 gh workflow enable release-drift.yml --repo effectstream/binaries
+previous_run_id=$(gh run list --repo effectstream/binaries --workflow release-drift.yml \
+  --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId // ""')
+dispatch_started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 gh workflow run release-drift.yml --repo effectstream/binaries
-gh run watch --repo effectstream/binaries --exit-status
+run_id=$(gh run list --repo effectstream/binaries --workflow release-drift.yml \
+  --event workflow_dispatch --created ">=$dispatch_started" --limit 1 \
+  --json databaseId --jq '.[0].databaseId')
+test -n "$run_id"
+test "$run_id" != "$previous_run_id"
+gh run watch "$run_id" --repo effectstream/binaries --exit-status
 scripts/check-drift-heartbeat.sh --repo effectstream/binaries \
   --workflow release-drift.yml --max-age-hours 36
 ```
 
+The captured `run_id` must be the newly dispatched run; never substitute an older green run. If listing races dispatch, query again before watching. Record that ID in the incident acknowledgement.
+
 On failure, `acedward` inspects the retained job report, records run ID/time and acknowledgement, then either records a false-alarm/fresh-success result or opens the reviewed manual `revoked` incident PR/advisory. The workflow only reports and never auto-revokes or auto-blesses bytes.
+
+`metadata/baselines/0.3.120-current.json` is a rotatable pointer to the reviewed current live release snapshot, not a permanent initial-state oracle. Whenever an authorized body or asset append is independently verified, add a new immutable full snapshot under `metadata/baselines/`, record its raw-file SHA-256 in the pointer, and update both in the final reviewed publication PR. Never rewrite an old snapshot. A subsequent preflight must equal the pointed repository/release/legacy asset identities and may perform only its separately intended body transition; stale initial, pre-existing foreign, or unreviewed live drift is rejected.
 
 ## 9. macOS distribution signing
 
@@ -222,6 +235,7 @@ Append-only correction rules:
 
 - Changed bytes for an existing K use `midnight-srs-noarch-2p{k}-{generation}.bin`, where generation is `ts-<full-commit>`, `provider-<full-commit>-sha256-<full-digest>`, or `sha256-<full-digest>`. Multiple same-K rows require the explicit full generation and install to the mapped literal alias; never guess latest.
 - A normal static semver bump uses `midnight-ledger-static-noarch-{semver}.zip`. Changed bytes under unchanged semver use `midnight-ledger-static-noarch-{semver}-manifest-sha256-{full-member-manifest-digest}.zip` with `ledgerStaticRevision=manifest-sha256:<full-digest>`. Multiple same-semver rows require the full member manifest.
+- A changed same-semver Ledger archive never inherits rc.5 compatibility merely because its namespace is `9`: its typed correction record must bind the exact new member manifest, source commit, both tested image digests, pass result, and reviewed evidence digest/reference. Static-10 source/images remain a hard negative.
 - Byte-identical proof data adds exact compatibility metadata without another upload.
 
 Bootstrap/adoption rules: derive every generated BZKIR's K through the proof-server `/k` endpoint. Download only selected published rows, verify outer/raw and every member, compute the combined SRS+Ledger content-manifest SHA, take an exclusive lock, stage/fsync/verify on the same persistent filesystem, rename to immutable `generations/<combined-sha256>`, and atomically replace `current` while both readers are stopped. Resolve the pointer once and mount the same fixed generation path read-only into both services as `MIDNIGHT_PP`. Never mutate a generation in place. Retain the previous complete generation on failure; with readers quiesced, quarantine/repair a corrupt same-digest generation and garbage-collect only non-current/unreferenced generations.

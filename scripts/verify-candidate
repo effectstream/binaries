@@ -24,6 +24,20 @@ def fail(message: str) -> None:
     raise SystemExit(f"verify-candidate: {message}")
 
 
+def strict_json(path: Path) -> dict:
+    def reject(pairs: list[tuple[str, object]]) -> dict:
+        value = {}
+        for key, item in pairs:
+            if key in value:
+                fail(f"duplicate JSON key in {path}: {key}")
+            value[key] = item
+        return value
+    try:
+        return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=reject)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        fail(f"invalid JSON {path}: {exc}")
+
+
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -38,8 +52,8 @@ def canonical_sha256(value: object) -> str:
 
 
 def write_record(path: Path, value: dict) -> None:
-    if path.exists() or path.is_symlink() or not path.parent.is_dir():
-        fail("--output must be a new file in an existing private directory")
+    if not path.is_absolute() or path.exists() or path.is_symlink() or not path.parent.is_dir() or path.parent.is_symlink() or path.parent.stat().st_mode & 0o077:
+        fail("--output must be an absolute new file in an existing mode-0700 private directory")
     raw = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n"
     descriptor, temporary = tempfile.mkstemp(prefix=".candidate-verification.", dir=path.parent)
     try:
@@ -48,14 +62,22 @@ def write_record(path: Path, value: dict) -> None:
             handle.write(raw)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temporary, path)
-        os.chmod(path, 0o600)
+        try:
+            os.link(temporary, path)
+        except FileExistsError:
+            fail("--output appeared during verification; refusing to replace it")
+        directory_fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
 
 
 def main() -> int:
+    os.environ["GH_HOST"] = "github.com"
     parser = argparse.ArgumentParser()
     parser.add_argument("--forge-checkout", required=True, type=Path)
     parser.add_argument("--forge-component-checkout", required=True, type=Path)
@@ -65,9 +87,10 @@ def main() -> int:
     parser.add_argument("--content-dir", type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--test-noncryptographic-fixture", action="store_true")
+    parser.add_argument("--test-integration-envelope", type=Path)
     args = parser.parse_args()
 
-    pin = json.loads(PIN.read_text(encoding="utf-8"))
+    pin = strict_json(PIN)
     checkout = args.forge_checkout.resolve()
     if not (checkout / ".git").exists():
         fail("--forge-checkout is not a git checkout")
@@ -109,14 +132,28 @@ def main() -> int:
     ]
     subprocess.run(command, check=True)
 
-    envelope = json.loads(args.envelope.read_text(encoding="utf-8"))
+    envelope = strict_json(args.envelope)
+    record_envelope = args.envelope
+    record_live_evidence = args.live_evidence
+    if args.test_integration_envelope is not None:
+        if not args.test_noncryptographic_fixture:
+            fail("--test-integration-envelope is allowed only with the nonauthorizing test fixture")
+        expected_integration = ROOT / "tests/fixtures/integration-envelope-ddd.json"
+        if args.test_integration_envelope.resolve() != expected_integration.resolve() or sha256(expected_integration) != "9ba606346f4118eb2eeb5c0aecad6db89eb24b0cb5ad59537767cf05604388da":
+            fail("test integration envelope is not the exact warehouse fixture")
+        integration_live = ROOT / "tests/fixtures/integration-live-evidence-ddd.json"
+        if sha256(integration_live) != "6bad1a7c2f0f842faebd4b602bf47baef89008eee76be4e176ff5d92d0b6e0f1":
+            fail("test integration live evidence is not the exact warehouse fixture")
+        envelope = strict_json(expected_integration)
+        record_envelope = expected_integration
+        record_live_evidence = integration_live
     claims = envelope["claims"]
     if claims["candidateDraft"]["repository"] != "acedward/midnight-binary-forge":
         fail("candidate repository is not allowlisted")
     if claims["issuer"]["commitSha"] != claims["candidateDraft"]["targetCommitish"]:
         fail("issuer and candidate commit identities differ")
 
-    component_pin = json.loads(COMPONENT_PIN.read_text(encoding="utf-8"))
+    component_pin = strict_json(COMPONENT_PIN)
     component_checkout = args.forge_component_checkout.resolve()
     if not (component_checkout / ".git").exists():
         fail("--forge-component-checkout is not a git checkout")
@@ -241,9 +278,10 @@ def main() -> int:
             "releaseNodeId": candidate["releaseNodeId"],
             "claimsDigest": envelope["claimsDigest"].removeprefix("sha256:"),
         },
-        "envelopeSha256": sha256(args.envelope),
+        "envelopeSha256": sha256(record_envelope),
         "bundleSha256": sha256(args.bundle),
-        "liveEvidenceSha256": sha256(args.live_evidence),
+        "liveEvidenceSha256": canonical_sha256(strict_json(record_live_evidence)),
+        "liveEvidence": strict_json(record_live_evidence),
         "contentIdentitySha256": content_identity,
     }
     write_record(args.output, record)

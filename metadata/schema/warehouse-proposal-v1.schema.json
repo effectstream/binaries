@@ -9,7 +9,7 @@
   ],
   "properties": {
     "schemaVersion": {"const": "warehouse-proposal-v1"},
-    "proposalId": {"const": "initial-31-v1"},
+    "proposalId": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{2,127}$"},
     "destination": {
       "const": {
         "repository": "effectstream/binaries",
@@ -19,16 +19,26 @@
       }
     },
     "publicationState": {"const": "planned"},
-    "payloadCount": {"const": 31},
+    "payloadCount": {"type": "integer", "minimum": 1, "maximum": 1000},
     "evidenceRequired": {
       "const": [
         "source-manifest", "checksums", "license", "provenance", "attestation",
         "software-sbom-or-proof-member-lineage"
       ]
     },
-    "binaryPayloads": {"type": "array", "minItems": 10, "maxItems": 10, "uniqueItems": true, "items": {"type": "string"}},
-    "proofPayloads": {"type": "array", "minItems": 21, "maxItems": 21, "uniqueItems": true, "items": {"type": "string"}},
+    "binaryPayloads": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+    "proofPayloads": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
     "compactPayloadCount": {"const": 0},
-    "warning": {"const": "DEVELOPMENT ONLY — NOT FOR PRODUCTION USE. Release `0.3.120` is mutable; verify every downloaded SHA-256 against committed metadata before installation or execution."}
+    "warning": {"const": "DEVELOPMENT ONLY — NOT FOR PRODUCTION USE. Release `0.3.120` is mutable; verify every downloaded SHA-256 against committed metadata before installation or execution."},
+    "contractExtension": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewedId", "familyContractsSha256", "proofContractsSha256"],
+      "properties": {
+        "reviewedId": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{2,127}$"},
+        "familyContractsSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "proofContractsSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
   }
 }

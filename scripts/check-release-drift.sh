@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo="effectstream/binaries"
 release="0.3.120"
-baseline="metadata/baselines/0.3.120-initial.json"
+baseline="metadata/baselines/0.3.120-current.json"
 independent_downloads=true
 
 usage() {

@@ -62,7 +62,22 @@ jobs:
             --envelope "$forge_dir/tests/fixtures/envelope/promotion-envelope-fixture-1.json" \
             --bundle "$forge_dir/tests/fixtures/envelope/attestation-fixture-1.sigstore.json" \
             --live-evidence "$forge_dir/tests/fixtures/envelope/live-valid.json" \
+            --test-integration-envelope tests/fixtures/integration-envelope-ddd.json \
             --output "$forge_dir/candidate-verification.json"
+          python3 - "$forge_dir/candidate-verification.json" tests/fixtures/integration-envelope-ddd.json <<'PY'
+          import json, pathlib, sys
+          sys.path.insert(0, "scripts")
+          from promotion_tool import validate_candidate_verification_record
+          record = json.load(open(sys.argv[1], encoding="utf-8"))
+          assert record["testOnly"] is True
+          assert record["componentPolicy"]["issuerCommit"] == "ddd2838d0226eeaaca8f7a42ad82cba1a132bbfe"
+          assert record["envelopeSha256"] == "9ba606346f4118eb2eeb5c0aecad6db89eb24b0cb5ad59537767cf05604388da"
+          validate_candidate_verification_record(record, pathlib.Path(sys.argv[2]).read_bytes(), require_live=False)
+          from tests.test_clean_room import CleanRoomReadmeTests
+          receipt = CleanRoomReadmeTests().receipt_from_exact_two_pin_record(record)
+          assert receipt["candidateVerificationSha256"]
+          assert receipt["preflight"]["conflictCount"] == 0
+          PY
 
       - name: Prove no destination release-write workflow exists
         run: python3 tests/test_workflow_policy.py

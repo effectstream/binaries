@@ -1,0 +1,48 @@
+{
+  "schemaVersion": "promotion-envelope-v1",
+  "claimsDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "claims": {
+    "issuer": {
+      "repository": "acedward/midnight-binary-forge",
+      "ref": "refs/heads/main",
+      "commitSha": "ddd2838d0226eeaaca8f7a42ad82cba1a132bbfe",
+      "workflowPath": ".github/workflows/candidate.yml",
+      "workflowSha": "1111111111111111111111111111111111111111"
+    },
+    "candidateDraft": {
+      "repository": "acedward/midnight-binary-forge",
+      "tag": "forge-2026.08.28.1",
+      "releaseId": 1,
+      "releaseNodeId": "RE_integration_fixture",
+      "targetCommitish": "ddd2838d0226eeaaca8f7a42ad82cba1a132bbfe"
+    },
+    "staging": {
+      "runId": 700,
+      "runAttempt": 1,
+      "artifactId": 800,
+      "archiveSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    "transport": {
+      "envelopeName": "integration-envelope-ddd.json",
+      "attestationBundleName": "attestation-fixture-1.sigstore.json"
+    },
+    "destination": {
+      "repository": "effectstream/binaries",
+      "tag": "0.3.120",
+      "distributionTier": "development-only",
+      "releaseMutability": "mutable-warehouse"
+    },
+    "payloadCount": 1,
+    "contentAssets": [
+      {
+        "name": "indexer-standalone-linux-amd64-v9.9.9.zip",
+        "size": 9,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "role": "payload",
+        "artifactKind": "software",
+        "componentId": "integration-fixture",
+        "mediaType": "application/zip"
+      }
+    ]
+  }
+}

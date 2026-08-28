@@ -1,3 +1,28 @@
 #!/usr/bin/env bash
 set -euo pipefail
+
+for argument in "$@"; do
+  if [[ $argument == --previous-catalog ]]; then
+    exec python3 "$(dirname "$0")/warehouse_lib.py" validate "$@"
+  fi
+done
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+  echo 'validate-catalog: --previous-catalog is required outside a reviewed git checkout' >&2
+  exit 2
+}
+base=$(git -C "$root" merge-base HEAD refs/remotes/origin/main 2>/dev/null) || {
+  echo 'validate-catalog: cannot resolve reviewed origin/main base; pass --previous-catalog explicitly' >&2
+  exit 2
+}
+previous=$(mktemp)
+trap 'rm -f -- "$previous"' EXIT
+if git -C "$root" cat-file -e "$base:metadata/releases/0.3.120.json" 2>/dev/null; then
+  git -C "$root" show "$base:metadata/releases/0.3.120.json" >"$previous"
+  exec python3 "$(dirname "$0")/warehouse_lib.py" validate --previous-catalog "$previous" "$@"
+fi
+
+# Bootstrap-only path: the reviewed base predates the first warehouse catalog.
+# warehouse_lib reconstructs the exact 66-row prior state from the immutable
+# independently downloaded baseline; after the first merge this branch is never used.
 exec python3 "$(dirname "$0")/warehouse_lib.py" validate "$@"

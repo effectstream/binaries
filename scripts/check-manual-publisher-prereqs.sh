@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 set -euo pipefail
+export GH_HOST=github.com
 
 repo=""
 account=""
@@ -79,6 +80,17 @@ done
   echo "invalid, existing, or missing --output" >&2
   exit 2
 }
+python3 - "$output" <<'PY' || {
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+parent = path.parent
+if not path.is_absolute() or parent.is_symlink() or (parent.stat().st_mode & 0o077):
+    raise SystemExit(1)
+PY
+  echo "--output must be absolute and its existing parent must be private (0700)" >&2
+  exit 2
+}
 
 top_level=$(git rev-parse --show-toplevel 2>/dev/null) || {
   echo "publisher prerequisite failed: not a git checkout" >&2
@@ -118,7 +130,7 @@ gh auth status --hostname github.com >/dev/null 2>&1 || {
   echo "publisher prerequisite failed: GitHub authentication is unavailable" >&2
   exit 1
 }
-active_account=$(gh api user --jq '.login')
+active_account=$(gh api --hostname github.com user --jq '.login')
 [[ $active_account == "$account" ]] || {
   echo "publisher prerequisite failed: active GitHub account is not the explicitly authorized account" >&2
   exit 1
@@ -128,8 +140,8 @@ repo_json=$(mktemp)
 release_json=$(mktemp)
 trap 'rm -f "$repo_json" "$release_json"' EXIT
 chmod 600 "$repo_json" "$release_json"
-gh api "repos/$repo" >"$repo_json"
-gh api "repos/$repo/releases/tags/$release" >"$release_json"
+gh api --hostname github.com "repos/$repo" >"$repo_json"
+gh api --hostname github.com "repos/$repo/releases/tags/$release" >"$release_json"
 
 jq -e --arg repo "$repo" '
   .full_name == $repo and
@@ -184,8 +196,12 @@ jq -S -c -n \
     tool:{name:"check-manual-publisher-prereqs.sh",scriptSha256:$scriptSha256,ghVersion:$ghVersion},
     effectiveWrite:true,result:"pass"
   }' >"$record_tmp"
-mv "$record_tmp" "$output"
-chmod 600 "$output"
+if ! ln "$record_tmp" "$output"; then
+  unlink "$record_tmp"
+  echo "publisher prerequisite failed: output appeared during capture; refusing to replace it" >&2
+  exit 1
+fi
+unlink "$record_tmp"
 
 printf 'PASS account=%s repository=%s repository_id=%s repository_node_id=%s release=%s release_id=%s release_node_id=%s head=%s authority_ref=%s worktree=clean mode=read-only\n' \
   "$active_account" \

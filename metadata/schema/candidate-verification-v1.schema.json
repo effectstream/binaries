@@ -3,7 +3,7 @@
   "$id": "https://github.com/effectstream/binaries/metadata/schema/candidate-verification-v1.schema.json",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "verifiedAt", "result", "testOnly", "protocolCommit", "protocolManifestSha256", "forge", "componentPolicy", "candidate", "envelopeSha256", "bundleSha256", "liveEvidenceSha256", "contentIdentitySha256"],
+  "required": ["schemaVersion", "verifiedAt", "result", "testOnly", "protocolCommit", "protocolManifestSha256", "forge", "componentPolicy", "candidate", "envelopeSha256", "bundleSha256", "liveEvidenceSha256", "liveEvidence", "contentIdentitySha256"],
   "properties": {
     "schemaVersion": {"const": "candidate-verification-v1"},
     "verifiedAt": {"type": "string", "format": "date-time"},
@@ -50,6 +50,7 @@
     "envelopeSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "bundleSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "liveEvidenceSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "liveEvidence": {"$ref": "promotion-live-evidence-v1.schema.json"},
     "contentIdentitySha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"}
   }
 }

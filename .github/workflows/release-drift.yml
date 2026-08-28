@@ -61,7 +61,7 @@ jobs:
           set -o pipefail
           scripts/check-release-drift.sh \
             --repo effectstream/binaries --release 0.3.120 \
-            --baseline metadata/baselines/0.3.120-initial.json \
+            --baseline metadata/baselines/0.3.120-current.json \
             2>&1 | tee drift-report.txt
 
       - name: Retain the non-secret drift report

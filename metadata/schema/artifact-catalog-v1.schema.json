@@ -81,6 +81,17 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       }
     },
+    "plannedAsset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "state", "size", "sha256"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$" },
+        "state": { "const": "candidate" },
+        "size": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
     "archive": {
       "type": "object",
       "additionalProperties": false,
@@ -100,6 +111,7 @@
               "type": { "enum": ["file", "directory", "symlink", "other"] },
               "size": { "type": "integer", "minimum": 0 },
               "sha256": { "$ref": "#/$defs/sha256" },
+              "timestamp": { "type": "string", "format": "date-time" },
               "storedMode": { "$ref": "#/$defs/mode" },
               "installMode": { "$ref": "#/$defs/mode" }
             }
@@ -109,6 +121,66 @@
           "type": "array",
           "items": { "type": "string", "minLength": 1 },
           "uniqueItems": true
+        }
+      }
+    },
+    "repackageRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion", "algorithm", "archiveFormat", "compression", "memberOrder",
+        "timestampPolicy", "pathPolicy", "members", "outputSize", "twoRun"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "deterministic-repackage-v1" },
+        "algorithm": { "const": "copy-verified-members-v1" },
+        "archiveFormat": { "enum": ["zip", "tar.gz"] },
+        "compression": { "enum": ["deflate-level-9", "gzip-level-9"] },
+        "memberOrder": { "const": "utf8-bytewise-lexicographic" },
+        "timestampPolicy": { "enum": ["zip-dos-epoch-1980-01-01T00:00:00Z", "unix-epoch-1970-01-01T00:00:00Z"] },
+        "pathPolicy": { "const": "exact-mapping-only" },
+        "members": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "inputAssetId", "inputAssetNodeId", "inputAssetName", "inputAssetUrl", "inputAssetSize",
+              "inputAssetSha256", "inputMemberPath", "inputMemberSize", "inputMemberSha256",
+              "outputPath", "outputSize", "outputSha256", "storedMode", "installMode", "timestamp"
+            ],
+            "properties": {
+              "inputAssetId": { "type": "integer", "minimum": 1 },
+              "inputAssetNodeId": { "type": "string", "minLength": 1 },
+              "inputAssetName": { "type": "string", "minLength": 1 },
+              "inputAssetUrl": { "type": "string", "pattern": "^https://github[.]com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/releases/download/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$" },
+              "inputAssetSize": { "type": "integer", "minimum": 0 },
+              "inputAssetSha256": { "$ref": "#/$defs/sha256" },
+              "inputMemberPath": { "type": "string", "minLength": 1 },
+              "inputMemberSize": { "type": "integer", "minimum": 0 },
+              "inputMemberSha256": { "$ref": "#/$defs/sha256" },
+              "outputPath": { "type": "string", "minLength": 1 },
+              "outputSize": { "type": "integer", "minimum": 0 },
+              "outputSha256": { "$ref": "#/$defs/sha256" },
+              "storedMode": { "$ref": "#/$defs/mode" },
+              "installMode": { "$ref": "#/$defs/mode" },
+              "timestamp": { "type": "string", "format": "date-time" }
+            }
+          }
+        },
+        "outputSize": { "type": "integer", "minimum": 0 },
+        "twoRun": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["run1Sha256", "run2Sha256", "independentReadbackSha256", "run1Runner", "run2Runner"],
+          "properties": {
+            "run1Sha256": { "$ref": "#/$defs/sha256" },
+            "run2Sha256": { "$ref": "#/$defs/sha256" },
+            "independentReadbackSha256": { "$ref": "#/$defs/sha256" },
+            "run1Runner": { "type": "string", "minLength": 1 },
+            "run2Runner": { "type": "string", "minLength": 1 }
+          }
         }
       }
     },
@@ -139,7 +211,7 @@
             "logReference", "stapling", "onlineTicket", "gatekeeper", "quarantinedDownloadSmoke"
           ],
           "properties": {
-            "submissionId": { "type": "string", "pattern": "^[0-9A-Fa-f-]{36}$" },
+            "submissionId": { "type": "string", "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$" },
             "status": { "const": "Accepted" },
             "submittedAt": { "type": "string", "format": "date-time" },
             "completedAt": { "type": "string", "format": "date-time" },
@@ -232,7 +304,7 @@
       "required": ["kind", "installedPath", "installedMode", "exactConsumers"],
       "properties": {
         "kind": { "enum": ["srs", "ledger-static"] },
-        "k": { "type": "integer", "minimum": 0, "maximum": 19 },
+        "k": { "type": "integer", "minimum": 0, "maximum": 63 },
         "srsGeneration": { "type": "string", "minLength": 1 },
         "officialAlias": { "type": ["string", "null"] },
         "cacheAlias": { "type": "string", "minLength": 1 },
@@ -243,6 +315,20 @@
         "installedPath": { "type": "string", "minLength": 1 },
         "installedMode": { "const": "0644" },
         "exactConsumers": { "type": "array", "items": { "$ref": "#/$defs/exactConsumer" }, "minItems": 1 }
+        ,"correctionCompatibility": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["schemaVersion", "memberManifestSha256", "sourceCommit", "imageDigests", "result", "evidenceRef", "evidenceSha256"],
+          "properties": {
+            "schemaVersion": { "const": "ledger-static-correction-compatibility-v1" },
+            "memberManifestSha256": { "$ref": "#/$defs/sha256" },
+            "sourceCommit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+            "imageDigests": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" } },
+            "result": { "const": "pass" },
+            "evidenceRef": { "type": "string", "minLength": 1 },
+            "evidenceSha256": { "$ref": "#/$defs/sha256" }
+          }
+        }
       }
     },
     "entry": {
@@ -266,7 +352,7 @@
         "publicationState": { "enum": ["planned", "uploading", "verified", "published", "revoked"] },
         "distributionTier": { "const": "development-only" },
         "releaseMutability": { "const": "mutable-warehouse" },
-        "asset": { "$ref": "#/$defs/asset" },
+        "asset": { "oneOf": [{ "$ref": "#/$defs/asset" }, { "$ref": "#/$defs/plannedAsset" }] },
         "archive": { "$ref": "#/$defs/archive" },
         "install": {
           "type": "object",
@@ -294,6 +380,7 @@
             "upstreamAssetId": { "type": ["integer", "null"], "minimum": 1 },
             "upstreamAssetNodeId": { "type": ["string", "null"] },
             "upstreamAssetName": { "type": ["string", "null"] },
+            "upstreamAssetUrl": { "type": ["string", "null"], "pattern": "^https://github[.]com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/releases/download/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$" },
             "upstreamAssetSize": { "type": ["integer", "null"], "minimum": 0 },
             "upstreamAssetSha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
             "renameMapping": {
@@ -304,7 +391,8 @@
                 "from": { "type": "string", "minLength": 1 },
                 "to": { "type": "string", "minLength": 1 }
               }
-            }
+            },
+            "repackage": { "$ref": "#/$defs/repackageRecord" }
           }
         },
         "evidence": {
@@ -349,8 +437,34 @@
           "then": { "required": ["signing"] }
         },
         {
+          "if": { "properties": { "publicationState": { "const": "planned" } } },
+          "then": { "properties": { "asset": { "$ref": "#/$defs/plannedAsset" } } },
+          "else": { "properties": { "asset": { "$ref": "#/$defs/asset" } } }
+        },
+        {
           "if": { "properties": { "publicationState": { "const": "published" } } },
           "then": { "properties": { "asset": { "$ref": "#/$defs/asset" } } }
+        },
+        {
+          "if": {
+            "properties": {
+              "source": { "properties": { "method": { "const": "repackage" } } }
+            }
+          },
+          "then": {
+            "properties": {
+              "source": { "required": ["repackage"] },
+              "evidence": {
+                "properties": {
+                  "sourceManifest": { "type": "string", "minLength": 1 },
+                  "checksums": { "type": "string", "minLength": 1 },
+                  "provenance": { "type": "string", "minLength": 1 },
+                  "memberLineage": { "type": "string", "minLength": 1 }
+                }
+              },
+              "legacyProvenance": { "const": "known" }
+            }
+          }
         }
       ]
     }
