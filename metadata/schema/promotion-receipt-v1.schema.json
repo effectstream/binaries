@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/effectstream/binaries/metadata/schema/promotion-receipt-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "createdAt", "repository", "releaseTag", "releaseId", "authority", "candidateEnvelopeSha256", "candidateAssetListSha256", "proposalSha256", "intendedReleaseBodySha256", "snapshotSha256", "snapshotIdentitySha256", "snapshot", "candidateAssets", "preflight", "state", "requiredConfirmationPrefix", "residualRace"],
+  "properties": {
+    "schemaVersion": {"const": "promotion-receipt-v1"},
+    "createdAt": {"type": "string", "format": "date-time"},
+    "repository": {"const": "effectstream/binaries"},
+    "releaseTag": {"const": "0.3.120"},
+    "releaseId": {"const": 270761136},
+    "authority": {"type": "string", "minLength": 3},
+    "candidateEnvelopeSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "candidateAssetListSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "proposalSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "intendedReleaseBodySha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "snapshotSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "snapshotIdentitySha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "snapshot": {"$ref": "release-snapshot-v1.schema.json"},
+    "candidateAssets": {"type": "array", "items": {"type": "object", "required": ["name", "size", "sha256"]}},
+    "preflight": {"type": "object"},
+    "state": {"const": "planned"},
+    "requiredConfirmationPrefix": {"const": "UPLOAD effectstream/binaries 0.3.120"},
+    "residualRace": {"type": "string", "minLength": 1}
+  }
+}

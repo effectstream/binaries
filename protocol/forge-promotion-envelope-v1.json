@@ -1,0 +1,40 @@
+{
+  "schemaVersion": "forge-protocol-pin-v1",
+  "repository": "acedward/midnight-binary-forge",
+  "commitSha": "2052e6e3d47495b8404876092d34e7bcbd560690",
+  "mergedMainSha": "9dccfb27758209f1efe7a04cf4c2982f41081427",
+  "canonicalization": "forge-canonical-json-v1",
+  "envelopeSchema": "promotion-envelope-v1",
+  "predicateType": "https://github.com/acedward/midnight-binary-forge/predicates/promotion-envelope/v1",
+  "attestationIdentity": "https://github.com/acedward/midnight-binary-forge/.github/workflows/candidate.yml@refs/heads/main",
+  "files": [
+    {
+      "path": "scripts/canonical_json.py",
+      "sha256": "b5d4b6da0b321ef4a6bc89ed823ec239b12c46dcefb07d73ad777c5da3742d8c"
+    },
+    {
+      "path": "schema/promotion-envelope-v1.schema.json",
+      "sha256": "9ca320c947fb0083d10615e94d8730dfad060a53f5cf849de346b652061826d6"
+    },
+    {
+      "path": "schema/promotion-live-evidence-v1.schema.json",
+      "sha256": "784f7c178b73dc82ea2c43125961d2c5f4977b36b2cca428997e95a606eabe12"
+    },
+    {
+      "path": "tests/fixtures/canonical-json-v1-vectors.json",
+      "sha256": "3095867c401d1930515ddc1a9af5a65ecc338a2b3f6b0112291799e04fbaae88"
+    },
+    {
+      "path": "tests/fixtures/envelope/promotion-envelope-fixture-1.json",
+      "sha256": "708bfb505e87c4afe1f1c63d6cc933f0adb68aa2d6bebeec92862fb69b577d60"
+    },
+    {
+      "path": "tests/fixtures/envelope/live-valid.json",
+      "sha256": "e85940a6990369b233c5e558c016cad7e472566db74bceb1c8f0b9b4031df249"
+    },
+    {
+      "path": "tests/fixtures/envelope/attestation-fixture-1.sigstore.json",
+      "sha256": "0c98e272a4c95c4f970d1cde34cab9650dfa3c51bfbf6bd21895354683e611d2"
+    }
+  ]
+}

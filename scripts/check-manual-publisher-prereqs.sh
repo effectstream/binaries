@@ -5,10 +5,12 @@ set -euo pipefail
 repo=""
 account=""
 release=""
+reviewed_head=""
+authority_ref=""
 
 usage() {
   cat <<'EOF'
-Usage: scripts/check-manual-publisher-prereqs.sh --repo OWNER/REPO --account LOGIN --release TAG
+Usage: scripts/check-manual-publisher-prereqs.sh --repo OWNER/REPO --account LOGIN --release TAG --reviewed-head FULL_SHA --authority-ref REFERENCE
 
 Read-only prerequisite probe. It never uploads, edits a release, or prints auth material.
 EOF
@@ -26,6 +28,14 @@ while (($#)); do
       ;;
     --release)
       release=${2:?missing value for --release}
+      shift 2
+      ;;
+    --reviewed-head)
+      reviewed_head=${2:?missing value for --reviewed-head}
+      shift 2
+      ;;
+    --authority-ref)
+      authority_ref=${2:?missing value for --authority-ref}
       shift 2
       ;;
     -h|--help)
@@ -52,6 +62,14 @@ done
   echo "invalid or missing --release" >&2
   exit 2
 }
+[[ $reviewed_head =~ ^[0-9a-f]{40}$ ]] || {
+  echo "invalid or missing --reviewed-head" >&2
+  exit 2
+}
+[[ $authority_ref =~ ^[A-Za-z0-9][A-Za-z0-9._:/#@-]{2,255}$ ]] || {
+  echo "invalid or missing --authority-ref" >&2
+  exit 2
+}
 
 top_level=$(git rev-parse --show-toplevel 2>/dev/null) || {
   echo "publisher prerequisite failed: not a git checkout" >&2
@@ -67,6 +85,11 @@ if [[ -n $(git status --porcelain=v1 --untracked-files=all) ]]; then
   exit 1
 fi
 git diff --check >/dev/null
+actual_head=$(git rev-parse HEAD)
+[[ $actual_head == "$reviewed_head" ]] || {
+  echo "publisher prerequisite failed: checkout HEAD is not the explicitly reviewed commit" >&2
+  exit 1
+}
 
 origin=$(git remote get-url origin 2>/dev/null) || {
   echo "publisher prerequisite failed: origin is missing" >&2
@@ -101,17 +124,26 @@ gh api "repos/$repo/releases/tags/$release" >"$release_json"
 
 jq -e --arg repo "$repo" '
   .full_name == $repo and
+  .id == 1117580582 and
+  .node_id == "R_kgDOQpztJg" and
   (.permissions.admin == true or .permissions.maintain == true or .permissions.push == true)
 ' "$repo_json" >/dev/null || {
   echo "publisher prerequisite failed: repository identity or effective write permission mismatch" >&2
   exit 1
 }
-jq -e --arg release "$release" '.tag_name == $release' "$release_json" >/dev/null || {
+jq -e --arg release "$release" '
+  .tag_name == $release and
+  .id == 270761136 and
+  .node_id == "RE_kwDOQpztJs4QI3yw" and
+  .draft == false and
+  .prerelease == false and
+  .immutable == false
+' "$release_json" >/dev/null || {
   echo "publisher prerequisite failed: release identity mismatch" >&2
   exit 1
 }
 
-printf 'PASS account=%s repository=%s repository_id=%s repository_node_id=%s release=%s release_id=%s release_node_id=%s head=%s worktree=clean mode=read-only\n' \
+printf 'PASS account=%s repository=%s repository_id=%s repository_node_id=%s release=%s release_id=%s release_node_id=%s head=%s authority_ref=%s worktree=clean mode=read-only\n' \
   "$active_account" \
   "$repo" \
   "$(jq -r '.id' "$repo_json")" \
@@ -119,7 +151,7 @@ printf 'PASS account=%s repository=%s repository_id=%s repository_node_id=%s rel
   "$release" \
   "$(jq -r '.id' "$release_json")" \
   "$(jq -r '.node_id' "$release_json")" \
-  "$(git rev-parse HEAD)"
+  "$actual_head" \
+  "$authority_ref"
 
 echo 'WARNING: best-effort single-operator coordination and snapshot rechecks cannot eliminate concurrent-publisher TOCTOU.'
-

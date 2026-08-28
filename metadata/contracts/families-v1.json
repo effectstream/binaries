@@ -1,0 +1,100 @@
+{
+  "schemaVersion": "warehouse-family-contracts-v1",
+  "canonicalSelectors": {
+    "os": ["linux", "macos"],
+    "arch": ["amd64", "arm64"],
+    "inputAliases": {
+      "darwin": "macos",
+      "osx": "macos",
+      "x86_64": "amd64",
+      "x64": "amd64",
+      "aarch64": "arm64"
+    }
+  },
+  "coveragePolicy": {
+    "required": ["linux/amd64", "macos/arm64"],
+    "desired": ["linux/arm64"],
+    "optional": ["macos/amd64"]
+  },
+  "softwareFamilies": [
+    {
+      "family": "avail-node",
+      "nameTemplate": "avail-node-{os}-{arch}-v{version}.tar.gz",
+      "archive": "tar.gz",
+      "installMode": "0755",
+      "legacyExceptionsCataloged": true
+    },
+    {
+      "family": "celestia-appd",
+      "nameTemplate": "celestia-appd-{os}-{arch}-v{version}.tar.gz",
+      "archive": "tar.gz",
+      "members": ["LICENSE", "README.md", "celestia-appd"],
+      "installMode": "0755"
+    },
+    {
+      "family": "celestia-node",
+      "nameTemplate": "celestia-node-{os}-{arch}-v{version}.tar.gz",
+      "archive": "tar.gz",
+      "members": ["LICENSE", "README.md", "celestia"],
+      "installMode": "0755"
+    },
+    {
+      "family": "indexer-standalone",
+      "nameTemplate": "indexer-standalone-{os}-{arch}-v{version}.zip",
+      "archive": "zip",
+      "members": ["indexer-standalone-{version}"],
+      "installMode": "0755"
+    },
+    {
+      "family": "midnight-node",
+      "nameTemplate": "midnight-node-{os}-{arch}-{version}.zip",
+      "archive": "zip",
+      "layout": "root versioned executable plus res/",
+      "installMode": "0755"
+    },
+    {
+      "family": "midnight-node-toolkit",
+      "nameTemplate": "midnight-node-toolkit-{os}-{arch}-{version}.zip",
+      "archive": "zip",
+      "members": ["midnight-node-toolkit"],
+      "installMode": "0755",
+      "selectedVersion": "2.0.0-rc.4",
+      "selectedTargets": ["linux/amd64", "linux/arm64", "macos/arm64"]
+    },
+    {
+      "family": "midnight-proof-server",
+      "nameTemplate": "midnight-proof-server-{os}-{arch}-{version}.zip",
+      "variantTemplate": "midnight-proof-server-{os}-{arch}-ledger-{version}.zip",
+      "variant": "ledger",
+      "archive": "zip",
+      "layout": "one root versioned executable",
+      "installMode": "0755",
+      "newPublication": "deferred"
+    }
+  ],
+  "proofData": {
+    "platform": "noarch",
+    "initialPayloadCount": 21,
+    "srs": {
+      "literalNames": "bls_midnight_2p0..bls_midnight_2p19",
+      "installedMode": "0644",
+      "sameKCorrectionTemplate": "midnight-srs-noarch-2p{k}-{generation}.bin",
+      "generationTokens": [
+        "ts-<full-source-commit>",
+        "provider-<full-source-commit>-sha256-<full-canonical-digest>",
+        "sha256-<full-canonical-digest>"
+      ],
+      "multipleGenerationSelection": "explicit-full-generation-required"
+    },
+    "ledgerStatic": {
+      "nameTemplate": "midnight-ledger-static-noarch-{semver}.zip",
+      "sameSemverCorrectionTemplate": "midnight-ledger-static-noarch-{semver}-manifest-sha256-{full-member-manifest-digest}.zip",
+      "selectedSemver": "9.0.0",
+      "selectedCacheNamespace": "9",
+      "installedMode": "0644",
+      "multipleRevisionSelection": "full-memberManifestSha256-required"
+    }
+  },
+  "forbiddenFamilies": ["compact", "compactc"],
+  "compactPolicy": "Compact 0.34 is resolved from official LFDT-Minokawa releases only and is never a warehouse payload."
+}

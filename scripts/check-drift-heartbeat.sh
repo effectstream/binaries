@@ -110,8 +110,10 @@ fi
 
 created_at=$(jq -er '.run.created_at' "$payload")
 now=${now:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}
-created_epoch=$(date -u -d "$created_at" +%s)
-now_epoch=$(date -u -d "$now" +%s)
+# jq's RFC3339 parser is the documented portability boundary. This deliberately avoids
+# GNU `date -d`, which is unavailable on native macOS/BSD. The script already requires jq.
+created_epoch=$(jq -nr --arg timestamp "$created_at" '$timestamp | fromdateiso8601')
+now_epoch=$(jq -nr --arg timestamp "$now" '$timestamp | fromdateiso8601')
 age_seconds=$((now_epoch - created_epoch))
 max_age_seconds=$((max_age_hours * 3600))
 
@@ -129,4 +131,3 @@ printf 'PASS workflow=%s state=active run_id=%s conclusion=success age_seconds=%
   "$(jq -er '.run.id' "$payload")" \
   "$age_seconds" \
   "$(jq -er '.run.html_url' "$payload")"
-

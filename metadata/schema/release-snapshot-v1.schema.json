@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/effectstream/binaries/metadata/schema/release-snapshot-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "capturedAt", "apiBaseHost", "repository", "release", "pagination", "assets"],
+  "properties": {
+    "schemaVersion": {"const": "release-snapshot-v1"},
+    "capturedAt": {"type": "string", "format": "date-time"},
+    "apiBaseHost": {"const": "api.github.com"},
+    "repository": {
+      "const": {"fullName": "effectstream/binaries", "id": 1117580582, "nodeId": "R_kgDOQpztJg"}
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "nodeId", "tag", "name", "target", "draft", "prerelease", "immutable", "apiUrl", "uploadUrl", "browserUrl", "createdAt", "publishedAt", "updatedAt", "bodySha256"],
+      "properties": {
+        "id": {"const": 270761136},
+        "nodeId": {"const": "RE_kwDOQpztJs4QI3yw"},
+        "tag": {"const": "0.3.120"},
+        "name": {"type": "string"},
+        "target": {"type": "string"},
+        "draft": {"const": false},
+        "prerelease": {"const": false},
+        "immutable": {"const": false},
+        "apiUrl": {"const": "https://api.github.com/repos/effectstream/binaries/releases/270761136"},
+        "uploadUrl": {"type": "string", "pattern": "^https://uploads[.]github[.]com/repos/effectstream/binaries/releases/270761136/assets"},
+        "browserUrl": {"const": "https://github.com/effectstream/binaries/releases/tag/0.3.120"},
+        "createdAt": {"type": "string", "format": "date-time"},
+        "publishedAt": {"type": "string", "format": "date-time"},
+        "updatedAt": {"type": "string", "format": "date-time"},
+        "bodySha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "pagination": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["perPage", "pages", "totalCount", "complete"],
+      "properties": {
+        "perPage": {"const": 100},
+        "pages": {"type": "array", "minItems": 1, "items": {"type": "object"}},
+        "totalCount": {"type": "integer", "minimum": 0, "maximum": 1000},
+        "complete": {"const": true}
+      }
+    },
+    "assets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "nodeId", "name", "state", "size", "apiDigest", "sha256", "apiUrl", "downloadUrl", "contentType", "createdAt", "updatedAt"],
+        "properties": {
+          "id": {"type": "integer", "minimum": 1},
+          "nodeId": {"type": "string"},
+          "name": {"type": "string"},
+          "state": {"const": "uploaded"},
+          "size": {"type": "integer", "minimum": 0},
+          "apiDigest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "apiUrl": {"type": "string"},
+          "downloadUrl": {"type": "string"},
+          "contentType": {"type": "string"},
+          "createdAt": {"type": "string", "format": "date-time"},
+          "updatedAt": {"type": "string", "format": "date-time"},
+          "inspection": {"type": "object"}
+        }
+      }
+    }
+  }
+}

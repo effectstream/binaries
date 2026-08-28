@@ -1,0 +1,10 @@
+{
+  "workflow": {"id": 1, "state": "active"},
+  "run": {
+    "id": 100,
+    "status": "completed",
+    "conclusion": "success",
+    "created_at": "2026-08-28T03:00:00Z",
+    "html_url": "https://github.com/effectstream/binaries/actions/runs/100"
+  }
+}
