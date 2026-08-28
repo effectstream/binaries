@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from warehouse_lib import (  # noqa: E402
     WarehouseError,
     load_json,
+    load_release_baseline,
     resolve_catalog,
     stable_index,
     validate_baseline_change_rows,
@@ -99,7 +100,8 @@ class CatalogTests(unittest.TestCase):
         validate_catalog(self.catalog, self.schema)
         legacy = [row for row in self.catalog["entries"] if row["publicationState"] == "published"]
         planned = [row for row in self.catalog["entries"] if row["publicationState"] == "planned"]
-        self.assertEqual((len(legacy), len(planned), len(self.catalog["entries"])), (66, 31, 97))
+        uploading = [row for row in self.catalog["entries"] if row["publicationState"] == "uploading"]
+        self.assertEqual((len(legacy), len(planned), len(uploading), len(self.catalog["entries"])), (66, 0, 31, 97))
         self.assertEqual(len({row["semanticId"] for row in legacy}), 66)
         self.assertEqual(len({row["asset"]["name"] for row in legacy}), 66)
         for row in legacy:
@@ -409,7 +411,7 @@ class CatalogTests(unittest.TestCase):
     def test_committed_index_and_state_transitions_are_bound(self) -> None:
         index = stable_index(self.catalog)
         validate_repository_state(self.catalog, index, copy.deepcopy(self.catalog))
-        current = load_json(ROOT / "metadata/baselines/0.3.120-initial.json")
+        current = load_release_baseline(ROOT / "metadata/baselines/0.3.120-current.json")
         validate_snapshot_catalog_binding(self.catalog, current)
         extra = copy.deepcopy(current["assets"][0])
         extra.update({
@@ -454,7 +456,7 @@ class CatalogTests(unittest.TestCase):
 
     def test_planned_rows_and_global_destination_identities_are_exact(self) -> None:
         _, entry = self.known_software_catalog("indexer-standalone")
-        previous = self.published_catalog()
+        previous = copy.deepcopy(self.catalog)
         planned = copy.deepcopy(previous)
         entry = copy.deepcopy(entry)
         entry["version"] = "9.9.9"

@@ -24,6 +24,7 @@ from warehouse_lib import (  # noqa: E402
     canonical_sha256,
     inspect_archive,
     load_json,
+    load_release_baseline,
     resolve_catalog,
     sha256_file,
     stable_index,
@@ -34,12 +35,8 @@ from warehouse_lib import (  # noqa: E402
 from tests.test_proof_contract import proof_entry  # noqa: E402
 
 
-def published_catalog() -> dict:
-    catalog = load_json(ROOT / "metadata/releases/0.3.120.json")
-    catalog["entries"] = [
-        row for row in catalog["entries"] if row["publicationState"] == "published"
-    ]
-    return catalog
+def current_catalog() -> dict:
+    return load_json(ROOT / "metadata/releases/0.3.120.json")
 
 
 class CleanRoomReadmeTests(unittest.TestCase):
@@ -65,7 +62,7 @@ class CleanRoomReadmeTests(unittest.TestCase):
         }
 
     def planned_indexer(self, candidate: dict, *, family: str = "indexer-standalone", version: str = "9.9.9", archive: dict | None = None) -> tuple[dict, dict]:
-        catalog = published_catalog()
+        catalog = current_catalog()
         contracts = load_json(ROOT / "metadata/contracts/families-v1.json")
         contract = next(row for row in contracts["softwareFamilies"] if row["family"] == family)
         name = contract["nameTemplate"].format(os="linux", arch="amd64", version=version)
@@ -150,7 +147,7 @@ class CleanRoomReadmeTests(unittest.TestCase):
             "tool": {"name": "check-manual-publisher-prereqs.sh", "scriptSha256": sha256_file(ROOT / "scripts/check-manual-publisher-prereqs.sh"), "ghVersion": "gh version hosted-two-pin-fixture"},
             "effectiveWrite": True, "result": "pass",
         }
-        snapshot = load_json(ROOT / "metadata/baselines/0.3.120-initial.json")
+        snapshot = load_release_baseline(ROOT / "metadata/baselines/0.3.120-current.json")
         snapshot["release"]["bodySha256"] = hashlib.sha256((ROOT / "metadata/templates/release-body.md").read_bytes()).hexdigest()
         receipt = make_receipt(
             snapshot=snapshot, candidate=candidate, candidate_manifest=manifest,
@@ -269,7 +266,7 @@ class CleanRoomReadmeTests(unittest.TestCase):
             "liveEvidenceSha256": canonical_sha256(live),
             "liveEvidence": live, "contentIdentitySha256": canonical_sha256(candidate),
         }
-        snapshot = load_json(ROOT / "metadata/baselines/0.3.120-initial.json")
+        snapshot = load_release_baseline(ROOT / "metadata/baselines/0.3.120-current.json")
         snapshot["release"]["bodySha256"] = hashlib.sha256((ROOT / "metadata/templates/release-body.md").read_bytes()).hexdigest()
         paths = {
             "manifest": transaction_root / "candidate.json",
@@ -331,7 +328,7 @@ class CleanRoomReadmeTests(unittest.TestCase):
 
         # Execute the documented state choreography without exposing the planned row
         # through the stable index and without skipping a transition.
-        base = published_catalog()
+        base = current_catalog()
         validate_repository_state(planned_catalog, stable_index(planned_catalog), base)
         uploading = copy.deepcopy(planned_catalog)
         row = next(item for item in uploading["entries"] if item["publicationState"] == "planned")
@@ -361,7 +358,7 @@ class CleanRoomReadmeTests(unittest.TestCase):
         self.assertEqual(len(stable_index(published)["entries"]), 67)
 
     def test_readme_extension_future_k_and_static_revision_gates_execute(self) -> None:
-        catalog = published_catalog()
+        catalog = current_catalog()
         family_contract = load_json(ROOT / "metadata/contracts/families-v1.json")
         extended_contract = copy.deepcopy(family_contract)
         extended_contract["softwareFamilies"].append({

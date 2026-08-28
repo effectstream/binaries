@@ -37,13 +37,13 @@ from promotion_tool import (  # noqa: E402
     validate_receipt_bindings,
     verify_envelope_candidate_binding,
 )
-from warehouse_lib import WarehouseError, canonical_bytes, canonical_sha256, compare_snapshots, inspect_archive, load_json, sha256_file, snapshot_identity, write_canonical  # noqa: E402
+from warehouse_lib import WarehouseError, canonical_bytes, canonical_sha256, compare_snapshots, inspect_archive, load_json, load_release_baseline, sha256_file, snapshot_identity, write_canonical  # noqa: E402
 
 
 class PromotionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.snapshot = load_json(ROOT / "metadata/baselines/0.3.120-initial.json")
+        cls.snapshot = load_release_baseline(ROOT / "metadata/baselines/0.3.120-current.json")
         body = (ROOT / "metadata/templates/release-body.md").read_bytes()
         cls.snapshot["release"]["bodySha256"] = hashlib.sha256(body).hexdigest()
         cls.proposal = load_json(ROOT / "metadata/proposals/initial-31-v1.json")
@@ -138,9 +138,6 @@ class PromotionTests(unittest.TestCase):
 
     def planned_catalog(self, candidate: list[dict]) -> dict:
         catalog = load_json(ROOT / "metadata/releases/0.3.120.json")
-        catalog["entries"] = [
-            row for row in catalog["entries"] if row["publicationState"] == "published"
-        ]
         for row in candidate:
             match = re.fullmatch(r"indexer-standalone-linux-amd64-v(.+)[.]zip", row["name"])
             self.assertIsNotNone(match, row["name"])
@@ -481,13 +478,13 @@ class PromotionTests(unittest.TestCase):
                 "apiUrl": f"https://api.github.com/repos/effectstream/binaries/releases/assets/{index}",
                 "downloadUrl": "https://github.com/effectstream/binaries/releases/download/0.3.120/" + candidate["name"],
                 "contentType": "application/zip" if candidate["name"].endswith(".zip") else "application/octet-stream",
-                "createdAt": "2026-08-28T00:00:00Z", "updatedAt": "2026-08-28T00:00:00Z",
+                "createdAt": "2026-08-29T00:00:00Z", "updatedAt": "2026-08-29T00:00:00Z",
             })
         result["assets"].sort(key=lambda row: row["name"])
         result["pagination"]["totalCount"] = len(result["assets"])
         result["pagination"]["pages"][0]["count"] = len(result["assets"])
         if candidates:
-            result["release"]["updatedAt"] = "2026-08-28T00:00:00Z"
+            result["release"]["updatedAt"] = "2026-08-29T00:00:00Z"
         return result
 
     def test_mocked_create_readback_interruption_stale_and_confirmation(self) -> None:
