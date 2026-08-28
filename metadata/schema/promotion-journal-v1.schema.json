@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/effectstream/binaries/metadata/schema/promotion-journal-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "repository", "releaseTag", "receiptSha256", "candidateEnvelopeSha256", "journalNonce", "events", "state"],
+  "properties": {
+    "schemaVersion": {"const": "promotion-journal-v1"},
+    "repository": {"const": "effectstream/binaries"},
+    "releaseTag": {"const": "0.3.120"},
+    "receiptSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "candidateEnvelopeSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "journalNonce": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "state": {"enum": ["uploading", "aborted", "verified"]},
+    "events": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["sequence", "at", "kind", "details", "previousEventSha256", "eventSha256"],
+        "properties": {
+          "sequence": {"type": "integer", "minimum": 1},
+          "at": {"type": "string", "format": "date-time"},
+          "kind": {"enum": ["stale-snapshot-recheck-pass", "bound-resume-full-resnapshot-pass", "identical-noop", "create-response", "unexpected-api-result-abort", "post-race-full-resnapshot", "post-race-resnapshot-failed", "transaction-aborted", "full-api-download-readback-pass"]},
+          "details": {"type": "object"},
+          "previousEventSha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+          "eventSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/effectstream/binaries/metadata/schema/publisher-prerequisite-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "capturedAt", "authorityRef", "githubHost", "account", "repository", "release", "checkout", "tool", "effectiveWrite", "result"],
+  "properties": {
+    "schemaVersion": {"const": "publisher-prerequisite-v1"},
+    "capturedAt": {"type": "string", "format": "date-time"},
+    "authorityRef": {"type": "string", "minLength": 3},
+    "githubHost": {"const": "github.com"},
+    "account": {"const": "acedward"},
+    "repository": {"const": {"fullName": "effectstream/binaries", "id": 1117580582, "nodeId": "R_kgDOQpztJg"}},
+    "release": {"const": {"tag": "0.3.120", "id": 270761136, "nodeId": "RE_kwDOQpztJs4QI3yw", "draft": false, "prerelease": false, "immutable": false}},
+    "checkout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["origin", "head", "clean"],
+      "properties": {
+        "origin": {"enum": ["git@github.com:effectstream/binaries.git", "https://github.com/effectstream/binaries.git", "https://github.com/effectstream/binaries", "ssh://git@github.com/effectstream/binaries.git"]},
+        "head": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "clean": {"const": true}
+      }
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "scriptSha256", "ghVersion"],
+      "properties": {
+        "name": {"const": "check-manual-publisher-prereqs.sh"},
+        "scriptSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "ghVersion": {"type": "string", "minLength": 1}
+      }
+    },
+    "effectiveWrite": {"const": true},
+    "result": {"const": "pass"}
+  }
+}

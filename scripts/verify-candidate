@@ -1,0 +1,297 @@
+#!/usr/bin/env python3
+"""Consume the audited forge promotion protocol without reimplementing it."""
+
+from __future__ import annotations
+
+import argparse
+from datetime import datetime, timezone
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+
+
+ROOT = Path(__file__).resolve().parents[1]
+PIN = ROOT / "protocol/forge-promotion-envelope-v1.json"
+COMPONENT_PIN = ROOT / "protocol/forge-component-policy-v1.json"
+
+
+def fail(message: str) -> None:
+    raise SystemExit(f"verify-candidate: {message}")
+
+
+def strict_json(path: Path) -> dict:
+    def reject(pairs: list[tuple[str, object]]) -> dict:
+        value = {}
+        for key, item in pairs:
+            if key in value:
+                fail(f"duplicate JSON key in {path}: {key}")
+            value[key] = item
+        return value
+    try:
+        return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=reject)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        fail(f"invalid JSON {path}: {exc}")
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def canonical_sha256(value: object) -> str:
+    raw = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n"
+    return hashlib.sha256(raw).hexdigest()
+
+
+def write_record(path: Path, value: dict) -> None:
+    if not path.is_absolute() or path.exists() or path.is_symlink() or not path.parent.is_dir() or path.parent.is_symlink() or path.parent.stat().st_mode & 0o077:
+        fail("--output must be an absolute new file in an existing mode-0700 private directory")
+    raw = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n"
+    descriptor, temporary = tempfile.mkstemp(prefix=".candidate-verification.", dir=path.parent)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(raw)
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            os.link(temporary, path)
+        except FileExistsError:
+            fail("--output appeared during verification; refusing to replace it")
+        directory_fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def main() -> int:
+    os.environ["GH_HOST"] = "github.com"
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--forge-checkout", required=True, type=Path)
+    parser.add_argument("--forge-component-checkout", required=True, type=Path)
+    parser.add_argument("--envelope", required=True, type=Path)
+    parser.add_argument("--bundle", required=True, type=Path)
+    parser.add_argument("--live-evidence", required=True, type=Path)
+    parser.add_argument("--content-dir", type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--test-noncryptographic-fixture", action="store_true")
+    parser.add_argument("--test-integration-envelope", type=Path)
+    args = parser.parse_args()
+
+    pin = strict_json(PIN)
+    checkout = args.forge_checkout.resolve()
+    if not (checkout / ".git").exists():
+        fail("--forge-checkout is not a git checkout")
+    head = subprocess.check_output(
+        ["git", "-C", os.fspath(checkout), "rev-parse", "HEAD"], text=True
+    ).strip()
+    if head != pin["commitSha"]:
+        fail(f"forge checkout HEAD {head} is not the exact audited protocol pin")
+    dirty = subprocess.check_output(
+        ["git", "-C", os.fspath(checkout), "status", "--porcelain=v1", "--untracked-files=all"],
+        text=True,
+    )
+    if dirty:
+        fail("forge protocol checkout is dirty; use a clean exact pinned checkout")
+    origin = subprocess.check_output(
+        ["git", "-C", os.fspath(checkout), "remote", "get-url", "origin"], text=True
+    ).strip()
+    if origin not in {
+        "git@github.com:acedward/midnight-binary-forge.git",
+        "https://github.com/acedward/midnight-binary-forge.git",
+        "https://github.com/acedward/midnight-binary-forge",
+    }:
+        fail("forge checkout origin is not allowlisted")
+
+    for item in pin["files"]:
+        path = checkout / item["path"]
+        if not path.is_file() or path.is_symlink():
+            fail(f"missing regular protocol file {item['path']}")
+        if sha256(path) != item["sha256"]:
+            fail(f"audited protocol file digest mismatch: {item['path']}")
+
+    command = [
+        sys.executable,
+        os.fspath(checkout / "scripts/canonical_json.py"),
+        "verify-live",
+        os.fspath(args.envelope),
+        os.fspath(args.bundle),
+        os.fspath(args.live_evidence),
+    ]
+    subprocess.run(command, check=True)
+
+    envelope = strict_json(args.envelope)
+    record_envelope = args.envelope
+    record_live_evidence = args.live_evidence
+    if args.test_integration_envelope is not None:
+        if not args.test_noncryptographic_fixture:
+            fail("--test-integration-envelope is allowed only with the nonauthorizing test fixture")
+        expected_integration = ROOT / "tests/fixtures/integration-envelope-ddd.json"
+        if args.test_integration_envelope.resolve() != expected_integration.resolve() or sha256(expected_integration) != "709a69fc8adc5c17da2b7e0d69d4871d4e62af4c3333ff53b96ea7c6c9452f5a":
+            fail("test integration envelope is not the exact warehouse fixture")
+        integration_live = ROOT / "tests/fixtures/integration-live-evidence-ddd.json"
+        if sha256(integration_live) != "142a1893765426c1276374e4c2a7245a4a17e4f016d790d794eb9798c553dd9c":
+            fail("test integration live evidence is not the exact warehouse fixture")
+        envelope = strict_json(expected_integration)
+        record_envelope = expected_integration
+        record_live_evidence = integration_live
+    claims = envelope["claims"]
+    if claims["candidateDraft"]["repository"] != "acedward/midnight-binary-forge":
+        fail("candidate repository is not allowlisted")
+    if claims["issuer"]["commitSha"] != claims["candidateDraft"]["targetCommitish"]:
+        fail("issuer and candidate commit identities differ")
+
+    component_pin = strict_json(COMPONENT_PIN)
+    component_checkout = args.forge_component_checkout.resolve()
+    if not (component_checkout / ".git").exists():
+        fail("--forge-component-checkout is not a git checkout")
+    component_head = subprocess.check_output(
+        ["git", "-C", os.fspath(component_checkout), "rev-parse", "HEAD"], text=True
+    ).strip()
+    component_dirty = subprocess.check_output(
+        ["git", "-C", os.fspath(component_checkout), "status", "--porcelain=v1", "--untracked-files=all"],
+        text=True,
+    )
+    if component_dirty:
+        fail("forge component-policy checkout is dirty")
+    component_origin = subprocess.check_output(
+        ["git", "-C", os.fspath(component_checkout), "remote", "get-url", "origin"], text=True
+    ).strip()
+    if component_origin not in {
+        "git@github.com:acedward/midnight-binary-forge.git",
+        "https://github.com/acedward/midnight-binary-forge.git",
+        "https://github.com/acedward/midnight-binary-forge",
+    }:
+        fail("forge component-policy checkout origin is not allowlisted")
+    minimum_component_commit = component_pin["minimumCommitSha"]
+    if args.test_noncryptographic_fixture:
+        if component_head != minimum_component_commit:
+            fail("test component-policy checkout must be the exact independently audited remediation pin")
+    else:
+        if component_head != claims["issuer"]["commitSha"]:
+            fail("candidate issuer commit is not the exact component-policy checkout HEAD")
+        ancestry = subprocess.run(
+            ["git", "-C", os.fspath(component_checkout), "merge-base", "--is-ancestor", minimum_component_commit, component_head],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        if ancestry.returncode != 0:
+            fail("candidate issuer does not descend from the independently audited component-policy remediation")
+    for item in component_pin["files"]:
+        path = component_checkout / item["path"]
+        if not path.is_file() or path.is_symlink() or sha256(path) != item["sha256"]:
+            fail(f"component-policy pinned blob mismatch: {item['path']}")
+
+    if args.test_noncryptographic_fixture:
+        if os.environ.get("WAREHOUSE_TEST_ALLOW_NONCRYPTOGRAPHIC_FIXTURE") != "1":
+            fail("the noncryptographic golden fixture requires the explicit test-only environment marker")
+        fixture = checkout / "tests/fixtures/envelope/promotion-envelope-fixture-1.json"
+        fixture_bundle = checkout / "tests/fixtures/envelope/attestation-fixture-1.sigstore.json"
+        if args.envelope.resolve() != fixture.resolve() or args.bundle.resolve() != fixture_bundle.resolve():
+            fail("test-only bypass is restricted to the pinned noncryptographic forge golden fixture")
+    else:
+        if shutil.which("gh") is None:
+            fail("GitHub CLI with `gh attestation verify` support is required")
+        probe = subprocess.run(["gh", "attestation", "verify", "--help"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if probe.returncode != 0:
+            fail("installed GitHub CLI lacks `gh attestation verify`; upgrade before live verification")
+        with tempfile.TemporaryDirectory(prefix="warehouse-attestation-") as temporary:
+            directory = Path(temporary)
+            source = directory / "claims-input.json"
+            subject = directory / envelope["attestation"]["subjectName"]
+            source.write_text(json.dumps(claims, ensure_ascii=False), encoding="utf-8")
+            subprocess.run(
+                [sys.executable, os.fspath(checkout / "scripts/canonical_json.py"), "canonicalize", os.fspath(source), "--output", os.fspath(subject)],
+                check=True, stdout=subprocess.DEVNULL,
+            )
+            verification = subprocess.run(
+                [
+                    "gh", "attestation", "verify", os.fspath(subject),
+                    "--repo", "acedward/midnight-binary-forge",
+                    "--bundle", os.fspath(args.bundle),
+                    "--predicate-type", pin["predicateType"],
+                    "--cert-identity", pin["attestationIdentity"],
+                    "--cert-oidc-issuer", envelope["attestation"]["issuer"],
+                    "--source-ref", claims["issuer"]["ref"],
+                    "--source-digest", claims["issuer"]["commitSha"],
+                    "--deny-self-hosted-runners",
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
+            if verification.returncode != 0:
+                fail("GitHub artifact-attestation cryptographic verification failed")
+
+    content_identity = None
+    if args.content_dir:
+        content_dir = args.content_dir.resolve()
+        expected = {
+            row["name"]: (row["size"], row["sha256"])
+            for row in claims["contentAssets"]
+        }
+        observed = {}
+        for path in content_dir.iterdir():
+            if path.is_symlink() or not path.is_file():
+                fail(f"candidate content is not an inert regular file: {path.name!r}")
+            observed[path.name] = (path.stat().st_size, sha256(path))
+        if observed != expected:
+            fail("candidate content directory does not exactly match audited envelope claims")
+        content_identity = canonical_sha256([
+            {"name": name, "size": size, "sha256": digest}
+            for name, (size, digest) in sorted(observed.items())
+        ])
+
+    candidate = claims["candidateDraft"]
+    record = {
+        "schemaVersion": "candidate-verification-v1",
+        "verifiedAt": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "result": "pass",
+        "testOnly": args.test_noncryptographic_fixture,
+        "protocolCommit": pin["commitSha"],
+        "protocolManifestSha256": sha256(PIN),
+        "forge": {"origin": origin, "head": head, "clean": True},
+        "componentPolicy": {
+            "origin": component_origin,
+            "issuerCommit": component_head,
+            "minimumCommit": minimum_component_commit,
+            "manifestSha256": sha256(COMPONENT_PIN),
+            "clean": True,
+            "minimumAncestorVerified": True,
+            "exactPinnedBlobs": True,
+        },
+        "candidate": {
+            "repository": candidate["repository"],
+            "tag": candidate["tag"],
+            "releaseId": candidate["releaseId"],
+            "releaseNodeId": candidate["releaseNodeId"],
+            "claimsDigest": envelope["claimsDigest"].removeprefix("sha256:"),
+        },
+        "envelopeSha256": sha256(record_envelope),
+        "bundleSha256": sha256(args.bundle),
+        "liveEvidenceSha256": canonical_sha256(strict_json(record_live_evidence)),
+        "liveEvidence": strict_json(record_live_evidence),
+        "contentIdentitySha256": content_identity,
+    }
+    write_record(args.output, record)
+
+    print(
+        "PASS audited promotion-envelope-v1 "
+        f"candidate={claims['candidateDraft']['tag']} claims={envelope['claimsDigest']} record={args.output}"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

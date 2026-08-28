@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/effectstream/binaries/metadata/schema/warehouse-proposal-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "proposalId", "destination", "publicationState", "payloadCount",
+    "evidenceRequired", "binaryPayloads", "proofPayloads", "compactPayloadCount", "warning"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "warehouse-proposal-v1"},
+    "proposalId": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{2,127}$"},
+    "destination": {
+      "const": {
+        "repository": "effectstream/binaries",
+        "releaseTag": "0.3.120",
+        "distributionTier": "development-only",
+        "releaseMutability": "mutable-warehouse"
+      }
+    },
+    "publicationState": {"const": "planned"},
+    "payloadCount": {"type": "integer", "minimum": 1, "maximum": 1000},
+    "evidenceRequired": {
+      "const": [
+        "source-manifest", "checksums", "license", "provenance", "attestation",
+        "software-sbom-or-proof-member-lineage"
+      ]
+    },
+    "binaryPayloads": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+    "proofPayloads": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+    "compactPayloadCount": {"const": 0},
+    "warning": {"const": "DEVELOPMENT ONLY — NOT FOR PRODUCTION USE. Release `0.3.120` is mutable; verify every downloaded SHA-256 against committed metadata before installation or execution."},
+    "contractExtension": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewedId", "familyContractsSha256", "proofContractsSha256"],
+      "properties": {
+        "reviewedId": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{2,127}$"},
+        "familyContractsSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "proofContractsSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  }
+}

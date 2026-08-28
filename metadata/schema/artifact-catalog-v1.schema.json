@@ -1,0 +1,472 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/effectstream/binaries/metadata/schema/artifact-catalog-v1.schema.json",
+  "title": "Effectstream development artifact catalog v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "repository", "release", "warning", "entries"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "artifact-catalog-v1" },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fullName", "id", "nodeId"],
+      "properties": {
+        "fullName": { "const": "effectstream/binaries" },
+        "id": { "const": 1117580582 },
+        "nodeId": { "const": "R_kgDOQpztJg" }
+      }
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tag", "id", "nodeId", "url", "mutable"],
+      "properties": {
+        "tag": { "const": "0.3.120" },
+        "id": { "const": 270761136 },
+        "nodeId": { "const": "RE_kwDOQpztJs4QI3yw" },
+        "url": { "const": "https://github.com/effectstream/binaries/releases/tag/0.3.120" },
+        "mutable": { "const": true }
+      }
+    },
+    "warning": {
+      "const": "DEVELOPMENT ONLY — NOT FOR PRODUCTION USE. Release `0.3.120` is mutable; verify every downloaded SHA-256 against committed metadata before installation or execution."
+    },
+    "entries": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/entry" }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "mode": { "type": "string", "pattern": "^0[0-7]{3}$" },
+    "exactConsumer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["proofServerVersion", "sourceCommit", "imageDigest", "ledgerStaticSemver", "cacheNamespace"],
+      "properties": {
+        "proofServerVersion": { "const": "9.0.0-rc.5" },
+        "sourceCommit": { "const": "7a89f45d29792be7e09ca5eb246f1e69f0b2a179" },
+        "imageDigest": {
+          "enum": [
+            "sha256:d96a4d0f3f0f10f82698288443f2873a32fed180eb8f93c0bae83572c0a187a9",
+            "sha256:4f02ca2734649eb238d13924df299b1c82bd5546ec928c5d67bdd0ce86dd0bd1"
+          ]
+        },
+        "ledgerStaticSemver": { "const": "9.0.0" },
+        "cacheNamespace": { "const": "9" }
+      }
+    },
+    "asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "nodeId", "name", "state", "size", "apiDigest",
+        "sha256", "apiUrl", "downloadUrl", "contentType", "createdAt", "updatedAt"
+      ],
+      "properties": {
+        "id": { "type": "integer", "minimum": 1 },
+        "nodeId": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$" },
+        "state": { "const": "uploaded" },
+        "size": { "type": "integer", "minimum": 0 },
+        "apiDigest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "apiUrl": { "type": "string", "pattern": "^https://api[.]github[.]com/repos/effectstream/binaries/releases/assets/[0-9]+$" },
+        "downloadUrl": { "type": "string", "pattern": "^https://github[.]com/effectstream/binaries/releases/download/0[.]3[.]120/[A-Za-z0-9._-]+$" },
+        "contentType": { "type": "string", "minLength": 1 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "plannedAsset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "state", "size", "sha256"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$" },
+        "state": { "const": "candidate" },
+        "size": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "archive": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "memberCount", "expandedSize", "members", "legacyAnomalies"],
+      "properties": {
+        "format": { "enum": ["zip", "tar.gz", "raw"] },
+        "memberCount": { "type": "integer", "minimum": 1 },
+        "expandedSize": { "type": "integer", "minimum": 0 },
+        "members": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "type", "size", "storedMode", "installMode"],
+            "properties": {
+              "path": { "type": "string", "minLength": 1 },
+              "type": { "enum": ["file", "directory", "symlink", "other"] },
+              "size": { "type": "integer", "minimum": 0 },
+              "sha256": { "$ref": "#/$defs/sha256" },
+              "timestamp": { "type": "string", "format": "date-time" },
+              "storedMode": { "$ref": "#/$defs/mode" },
+              "installMode": { "$ref": "#/$defs/mode" }
+            }
+          }
+        },
+        "legacyAnomalies": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      }
+    },
+    "repackageRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion", "algorithm", "archiveFormat", "compression", "memberOrder",
+        "timestampPolicy", "pathPolicy", "members", "outputSize", "twoRun"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "deterministic-repackage-v1" },
+        "algorithm": { "const": "copy-verified-members-v1" },
+        "archiveFormat": { "enum": ["zip", "tar.gz"] },
+        "compression": { "enum": ["deflate-level-9", "gzip-level-9"] },
+        "memberOrder": { "const": "utf8-bytewise-lexicographic" },
+        "timestampPolicy": { "enum": ["zip-dos-epoch-1980-01-01T00:00:00Z", "unix-epoch-1970-01-01T00:00:00Z"] },
+        "pathPolicy": { "const": "exact-mapping-only" },
+        "members": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "inputAssetId", "inputAssetNodeId", "inputAssetName", "inputAssetUrl", "inputAssetSize",
+              "inputAssetSha256", "inputMemberPath", "inputMemberSize", "inputMemberSha256",
+              "outputPath", "outputSize", "outputSha256", "storedMode", "installMode", "timestamp"
+            ],
+            "properties": {
+              "inputAssetId": { "type": "integer", "minimum": 1 },
+              "inputAssetNodeId": { "type": "string", "minLength": 1 },
+              "inputAssetName": { "type": "string", "minLength": 1 },
+              "inputAssetUrl": { "type": "string", "pattern": "^https://github[.]com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/releases/download/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$" },
+              "inputAssetSize": { "type": "integer", "minimum": 0 },
+              "inputAssetSha256": { "$ref": "#/$defs/sha256" },
+              "inputMemberPath": { "type": "string", "minLength": 1 },
+              "inputMemberSize": { "type": "integer", "minimum": 0 },
+              "inputMemberSha256": { "$ref": "#/$defs/sha256" },
+              "outputPath": { "type": "string", "minLength": 1 },
+              "outputSize": { "type": "integer", "minimum": 0 },
+              "outputSha256": { "$ref": "#/$defs/sha256" },
+              "storedMode": { "$ref": "#/$defs/mode" },
+              "installMode": { "$ref": "#/$defs/mode" },
+              "timestamp": { "type": "string", "format": "date-time" }
+            }
+          }
+        },
+        "outputSize": { "type": "integer", "minimum": 0 },
+        "twoRun": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["run1Sha256", "run2Sha256", "independentReadbackSha256", "run1Runner", "run2Runner"],
+          "properties": {
+            "run1Sha256": { "$ref": "#/$defs/sha256" },
+            "run2Sha256": { "$ref": "#/$defs/sha256" },
+            "independentReadbackSha256": { "$ref": "#/$defs/sha256" },
+            "run1Runner": { "type": "string", "minLength": 1 },
+            "run2Runner": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "signing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["distributionSigningState", "codeSignatureKind", "cdhash", "authorities", "teamId", "hardenedRuntime", "strictVerification"],
+      "properties": {
+        "distributionSigningState": {
+          "enum": [
+            "UNSIGNED_DEVELOPMENT_ONLY",
+            "DEVELOPER_ID_SIGNED_NOT_NOTARIZED",
+            "DEVELOPER_ID_SIGNED_NOTARIZED_ONLINE_TICKET",
+            "legacy-unverified"
+          ]
+        },
+        "codeSignatureKind": { "enum": ["none", "linker-adhoc", "developer-id", "unknown"] },
+        "cdhash": { "type": ["string", "null"] },
+        "authorities": { "type": "array", "items": { "type": "string" } },
+        "teamId": { "type": ["string", "null"] },
+        "hardenedRuntime": { "type": ["boolean", "null"] },
+        "strictVerification": { "enum": ["pass", "fail", "unknown"] },
+        "notarization": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "submissionId", "status", "submittedAt", "completedAt", "logSha256",
+            "logReference", "stapling", "onlineTicket", "gatekeeper", "quarantinedDownloadSmoke"
+          ],
+          "properties": {
+            "submissionId": { "type": "string", "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$" },
+            "status": { "const": "Accepted" },
+            "submittedAt": { "type": "string", "format": "date-time" },
+            "completedAt": { "type": "string", "format": "date-time" },
+            "logSha256": { "$ref": "#/$defs/sha256" },
+            "logReference": { "type": "string", "minLength": 1 },
+            "stapling": { "const": "not-applicable" },
+            "onlineTicket": { "$ref": "#/$defs/verificationEvidence" },
+            "gatekeeper": { "$ref": "#/$defs/verificationEvidence" },
+            "quarantinedDownloadSmoke": { "$ref": "#/$defs/verificationEvidence" }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "distributionSigningState": { "const": "legacy-unverified" } } },
+          "then": {
+            "properties": {
+              "codeSignatureKind": { "const": "unknown" },
+              "cdhash": { "const": null },
+              "authorities": { "maxItems": 0 },
+              "teamId": { "const": null },
+              "hardenedRuntime": { "const": null },
+              "strictVerification": { "const": "unknown" }
+            },
+            "not": { "required": ["notarization"] }
+          }
+        },
+        {
+          "if": { "properties": { "distributionSigningState": { "const": "UNSIGNED_DEVELOPMENT_ONLY" } } },
+          "then": {
+            "properties": {
+              "codeSignatureKind": { "enum": ["none", "linker-adhoc"] },
+              "authorities": { "maxItems": 0 },
+              "teamId": { "const": null },
+              "hardenedRuntime": { "const": false },
+              "strictVerification": { "enum": ["pass", "fail"] }
+            },
+            "not": { "required": ["notarization"] }
+          }
+        },
+        {
+          "if": { "properties": { "codeSignatureKind": { "const": "none" } } },
+          "then": { "properties": { "cdhash": { "const": null }, "strictVerification": { "const": "fail" } } }
+        },
+        {
+          "if": { "properties": { "codeSignatureKind": { "const": "linker-adhoc" } } },
+          "then": { "properties": { "cdhash": { "type": "string", "pattern": "^[0-9A-Fa-f]{40}$" }, "strictVerification": { "const": "pass" } } }
+        },
+        {
+          "if": {
+            "properties": {
+              "distributionSigningState": {
+                "enum": ["DEVELOPER_ID_SIGNED_NOT_NOTARIZED", "DEVELOPER_ID_SIGNED_NOTARIZED_ONLINE_TICKET"]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "codeSignatureKind": { "const": "developer-id" },
+              "cdhash": { "type": "string", "pattern": "^[0-9A-Fa-f]{40}$" },
+              "authorities": { "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+              "teamId": { "type": "string", "pattern": "^[A-Z0-9]{10}$" },
+              "hardenedRuntime": { "const": true },
+              "strictVerification": { "const": "pass" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "distributionSigningState": { "const": "DEVELOPER_ID_SIGNED_NOT_NOTARIZED" } } },
+          "then": { "not": { "required": ["notarization"] } }
+        },
+        {
+          "if": { "properties": { "distributionSigningState": { "const": "DEVELOPER_ID_SIGNED_NOTARIZED_ONLINE_TICKET" } } },
+          "then": { "required": ["notarization"] }
+        }
+      ]
+    },
+    "verificationEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result", "checkedAt"],
+      "properties": {
+        "result": { "const": "pass" },
+        "checkedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "proofData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "installedPath", "installedMode", "exactConsumers"],
+      "properties": {
+        "kind": { "enum": ["srs", "ledger-static"] },
+        "k": { "type": "integer", "minimum": 0, "maximum": 63 },
+        "srsGeneration": { "type": "string", "minLength": 1 },
+        "officialAlias": { "type": ["string", "null"] },
+        "cacheAlias": { "type": "string", "minLength": 1 },
+        "ledgerStaticSemver": { "type": "string", "pattern": "^[0-9]+[.][0-9]+[.][0-9]+$" },
+        "cacheNamespace": { "type": "string", "pattern": "^[0-9]+$" },
+        "memberManifestSha256": { "$ref": "#/$defs/sha256" },
+        "ledgerStaticRevision": { "type": "string", "minLength": 1 },
+        "installedPath": { "type": "string", "minLength": 1 },
+        "installedMode": { "const": "0644" },
+        "exactConsumers": { "type": "array", "items": { "$ref": "#/$defs/exactConsumer" }, "minItems": 1 }
+        ,"correctionCompatibility": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["schemaVersion", "memberManifestSha256", "sourceCommit", "imageDigests", "result", "evidenceRef", "evidenceSha256"],
+          "properties": {
+            "schemaVersion": { "const": "ledger-static-correction-compatibility-v1" },
+            "memberManifestSha256": { "$ref": "#/$defs/sha256" },
+            "sourceCommit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+            "imageDigests": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" } },
+            "result": { "const": "pass" },
+            "evidenceRef": { "type": "string", "minLength": 1 },
+            "evidenceSha256": { "$ref": "#/$defs/sha256" }
+          }
+        }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "semanticId", "artifactKind", "family", "platform", "publicationState",
+        "distributionTier", "releaseMutability", "asset", "archive", "source",
+        "evidence", "legacyProvenance"
+      ],
+      "properties": {
+        "semanticId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._/-]*$" },
+        "artifactKind": { "enum": ["software", "proof-data"] },
+        "family": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+        "version": { "type": "string", "minLength": 1 },
+        "variant": { "type": ["string", "null"] },
+        "platform": { "enum": ["linux/amd64", "linux/arm64", "macos/amd64", "macos/arm64", "noarch"] },
+        "os": { "enum": ["linux", "macos"] },
+        "arch": { "enum": ["amd64", "arm64"] },
+        "coverageTier": { "enum": ["required", "desired", "optional", "legacy"] },
+        "publicationState": { "enum": ["planned", "uploading", "verified", "published", "revoked"] },
+        "distributionTier": { "const": "development-only" },
+        "releaseMutability": { "const": "mutable-warehouse" },
+        "asset": { "oneOf": [{ "$ref": "#/$defs/asset" }, { "$ref": "#/$defs/plannedAsset" }] },
+        "archive": { "$ref": "#/$defs/archive" },
+        "install": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "mode"],
+          "properties": {
+            "path": { "type": "string", "minLength": 1 },
+            "mode": { "$ref": "#/$defs/mode" }
+          }
+        },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["method", "repository", "commitSha", "license", "redistributionEvidence"],
+          "properties": {
+            "method": { "enum": ["build", "identity-mirror", "rename-only", "repackage", "assemble-data", "legacy-unknown"] },
+            "repository": { "type": ["string", "null"] },
+            "commitSha": { "type": ["string", "null"] },
+            "license": { "type": ["string", "null"] },
+            "redistributionEvidence": { "type": ["string", "null"] },
+            "lockedDependenciesSha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+            "toolchain": { "type": ["string", "null"] },
+            "flags": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+            "native": { "type": ["boolean", "null"] },
+            "upstreamAssetId": { "type": ["integer", "null"], "minimum": 1 },
+            "upstreamAssetNodeId": { "type": ["string", "null"] },
+            "upstreamAssetName": { "type": ["string", "null"] },
+            "upstreamAssetUrl": { "type": ["string", "null"], "pattern": "^https://github[.]com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/releases/download/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$" },
+            "upstreamAssetSize": { "type": ["integer", "null"], "minimum": 0 },
+            "upstreamAssetSha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+            "renameMapping": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["from", "to"],
+              "properties": {
+                "from": { "type": "string", "minLength": 1 },
+                "to": { "type": "string", "minLength": 1 }
+              }
+            },
+            "repackage": { "$ref": "#/$defs/repackageRecord" }
+          }
+        },
+        "evidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sourceManifest", "checksums", "provenance", "sbom", "memberLineage"],
+          "properties": {
+            "sourceManifest": { "type": ["string", "null"] },
+            "checksums": { "type": ["string", "null"] },
+            "provenance": { "type": ["string", "null"] },
+            "sbom": { "type": ["string", "null"] },
+            "memberLineage": { "type": ["string", "null"] }
+          }
+        },
+        "signing": { "$ref": "#/$defs/signing" },
+        "proofData": { "$ref": "#/$defs/proofData" },
+        "legacyProvenance": { "enum": ["known", "unknown", "legacy-unverified"] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "artifactKind": { "const": "software" } } },
+          "then": {
+            "required": ["version", "os", "arch", "coverageTier", "install"],
+            "properties": { "platform": { "not": { "const": "noarch" } } },
+            "not": { "required": ["proofData"] }
+          }
+        },
+        {
+          "if": { "properties": { "artifactKind": { "const": "proof-data" } } },
+          "then": {
+            "required": ["proofData"],
+            "properties": { "platform": { "const": "noarch" } },
+            "not": { "anyOf": [{ "required": ["os"] }, { "required": ["arch"] }, { "required": ["signing"] }] }
+          }
+        },
+        {
+          "if": { "properties": { "platform": { "const": "macos/arm64" } } },
+          "then": { "required": ["signing"] }
+        },
+        {
+          "if": { "properties": { "platform": { "const": "macos/amd64" } } },
+          "then": { "required": ["signing"] }
+        },
+        {
+          "if": { "properties": { "publicationState": { "const": "planned" } } },
+          "then": { "properties": { "asset": { "$ref": "#/$defs/plannedAsset" } } },
+          "else": { "properties": { "asset": { "$ref": "#/$defs/asset" } } }
+        },
+        {
+          "if": { "properties": { "publicationState": { "const": "published" } } },
+          "then": { "properties": { "asset": { "$ref": "#/$defs/asset" } } }
+        },
+        {
+          "if": {
+            "properties": {
+              "source": { "properties": { "method": { "const": "repackage" } } }
+            }
+          },
+          "then": {
+            "properties": {
+              "source": { "required": ["repackage"] },
+              "evidence": {
+                "properties": {
+                  "sourceManifest": { "type": "string", "minLength": 1 },
+                  "checksums": { "type": "string", "minLength": 1 },
+                  "provenance": { "type": "string", "minLength": 1 },
+                  "memberLineage": { "type": "string", "minLength": 1 }
+                }
+              },
+              "legacyProvenance": { "const": "known" }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

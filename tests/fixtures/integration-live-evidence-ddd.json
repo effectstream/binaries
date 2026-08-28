@@ -1,0 +1,67 @@
+{
+  "schemaVersion": "promotion-live-evidence-v1",
+  "capturedAt": "2026-08-28T00:00:00Z",
+  "repository": {
+    "fullName": "acedward/midnight-binary-forge",
+    "id": 1349127482,
+    "nodeId": "R_kgDOUGoNOg"
+  },
+  "protectedRef": {
+    "ref": "refs/heads/main",
+    "commitSha": "ddd2838d0226eeaaca8f7a42ad82cba1a132bbfe",
+    "protected": true
+  },
+  "workflowFile": {
+    "path": ".github/workflows/candidate.yml",
+    "commitSha": "ddd2838d0226eeaaca8f7a42ad82cba1a132bbfe",
+    "blobSha": "1111111111111111111111111111111111111111"
+  },
+  "run": {
+    "id": 700,
+    "attempt": 1,
+    "repository": "acedward/midnight-binary-forge",
+    "workflowPath": ".github/workflows/candidate.yml",
+    "event": "workflow_dispatch",
+    "headSha": "ddd2838d0226eeaaca8f7a42ad82cba1a132bbfe",
+    "headRef": "main",
+    "status": "completed",
+    "conclusion": "success"
+  },
+  "stagingArtifact": {
+    "id": 800,
+    "runId": 700,
+    "runAttempt": 1,
+    "name": "warehouse-two-pin-integration-fixture",
+    "archiveSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "expired": false,
+    "expiresAt": "2030-01-01T00:00:00Z"
+  },
+  "release": {
+    "id": 1,
+    "nodeId": "RE_integration_fixture",
+    "repository": "acedward/midnight-binary-forge",
+    "tag": "forge-2026.08.28.1",
+    "targetCommitish": "ddd2838d0226eeaaca8f7a42ad82cba1a132bbfe",
+    "url": "https://github.com/acedward/midnight-binary-forge/releases/tag/forge-2026.08.28.1",
+    "draft": false,
+    "prerelease": true,
+    "immutable": true
+  },
+  "releaseAssets": [
+    {
+      "name": "attestation-fixture-1.sigstore.json",
+      "size": 111,
+      "sha256": "0c98e272a4c95c4f970d1cde34cab9650dfa3c51bfbf6bd21895354683e611d2"
+    },
+    {
+      "name": "indexer-standalone-linux-amd64-v9.9.9.zip",
+      "size": 200,
+      "sha256": "e37c2dd80c6827fe0fe9ee9dd789ae0dd4d8c67f14da1d1fa80cb65f9914a0e7"
+    },
+    {
+      "name": "integration-envelope-ddd.json",
+      "size": 1617,
+      "sha256": "709a69fc8adc5c17da2b7e0d69d4871d4e62af4c3333ff53b96ea7c6c9452f5a"
+    }
+  ]
+}

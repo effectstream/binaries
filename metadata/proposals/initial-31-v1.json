@@ -1,0 +1,57 @@
+{
+  "schemaVersion": "warehouse-proposal-v1",
+  "proposalId": "initial-31-v1",
+  "destination": {
+    "repository": "effectstream/binaries",
+    "releaseTag": "0.3.120",
+    "distributionTier": "development-only",
+    "releaseMutability": "mutable-warehouse"
+  },
+  "publicationState": "planned",
+  "payloadCount": 31,
+  "evidenceRequired": [
+    "source-manifest",
+    "checksums",
+    "license",
+    "provenance",
+    "attestation",
+    "software-sbom-or-proof-member-lineage"
+  ],
+  "binaryPayloads": [
+    "indexer-standalone-linux-amd64-v4.4.0-rc.3.zip",
+    "indexer-standalone-linux-arm64-v4.4.0-rc.3.zip",
+    "indexer-standalone-macos-amd64-v4.4.0-rc.3.zip",
+    "indexer-standalone-macos-arm64-v4.4.0-rc.3.zip",
+    "midnight-node-linux-arm64-2.0.0-rc.4.zip",
+    "midnight-node-toolkit-linux-amd64-2.0.0-rc.4.zip",
+    "midnight-node-toolkit-linux-arm64-2.0.0-rc.4.zip",
+    "midnight-node-toolkit-macos-arm64-2.0.0-rc.4.zip",
+    "celestia-appd-linux-arm64-v6.4.10.tar.gz",
+    "celestia-node-linux-arm64-v0.28.4.tar.gz"
+  ],
+  "proofPayloads": [
+    "bls_midnight_2p0",
+    "bls_midnight_2p1",
+    "bls_midnight_2p2",
+    "bls_midnight_2p3",
+    "bls_midnight_2p4",
+    "bls_midnight_2p5",
+    "bls_midnight_2p6",
+    "bls_midnight_2p7",
+    "bls_midnight_2p8",
+    "bls_midnight_2p9",
+    "bls_midnight_2p10",
+    "bls_midnight_2p11",
+    "bls_midnight_2p12",
+    "bls_midnight_2p13",
+    "bls_midnight_2p14",
+    "bls_midnight_2p15",
+    "bls_midnight_2p16",
+    "bls_midnight_2p17",
+    "bls_midnight_2p18",
+    "bls_midnight_2p19",
+    "midnight-ledger-static-noarch-9.0.0.zip"
+  ],
+  "compactPayloadCount": 0,
+  "warning": "DEVELOPMENT ONLY — NOT FOR PRODUCTION USE. Release `0.3.120` is mutable; verify every downloaded SHA-256 against committed metadata before installation or execution."
+}

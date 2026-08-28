@@ -1,0 +1,119 @@
+name: Warehouse CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  schema-clean-room-and-manual-transaction:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out inert metadata and tooling
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Install pinned validation dependency
+        run: python3 -m pip install --disable-pip-version-check -r requirements-ci.txt
+
+      - name: Validate catalog and clean-room/manual fixtures
+        env:
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          previous_args=()
+          base_sha="$EVENT_BASE_SHA"
+          if [[ -z "$base_sha" || "$base_sha" =~ ^0+$ ]]; then
+            base_sha="$(git rev-parse HEAD^ 2>/dev/null || true)"
+          fi
+          if [[ -n "$base_sha" ]] && git cat-file -e "$base_sha:metadata/releases/0.3.120.json" 2>/dev/null; then
+            previous_catalog="$(mktemp)"
+            trap 'rm -f -- "$previous_catalog"' EXIT
+            git show "$base_sha:metadata/releases/0.3.120.json" >"$previous_catalog"
+            previous_args=(--previous-catalog "$previous_catalog")
+          fi
+          scripts/validate-catalog "${previous_args[@]}"
+          python3 -m unittest discover -s tests -v
+
+      - name: Consume the exact audited forge protocol fixture
+        env:
+          WAREHOUSE_TEST_ALLOW_NONCRYPTOGRAPHIC_FIXTURE: "1"
+        run: |
+          set -euo pipefail
+          forge_dir="$(mktemp -d)"
+          component_dir="$(mktemp -d)"
+          trap 'rm -rf -- "$forge_dir" "$component_dir"' EXIT
+          git -c credential.helper= clone --quiet --filter=blob:none \
+            https://github.com/acedward/midnight-binary-forge.git "$forge_dir"
+          git -C "$forge_dir" checkout --quiet 2052e6e3d47495b8404876092d34e7bcbd560690
+          git -c credential.helper= clone --quiet --filter=blob:none \
+            https://github.com/acedward/midnight-binary-forge.git "$component_dir"
+          git -C "$component_dir" checkout --quiet ddd2838d0226eeaaca8f7a42ad82cba1a132bbfe
+          scripts/verify-candidate --test-noncryptographic-fixture \
+            --forge-checkout "$forge_dir" \
+            --forge-component-checkout "$component_dir" \
+            --envelope "$forge_dir/tests/fixtures/envelope/promotion-envelope-fixture-1.json" \
+            --bundle "$forge_dir/tests/fixtures/envelope/attestation-fixture-1.sigstore.json" \
+            --live-evidence "$forge_dir/tests/fixtures/envelope/live-valid.json" \
+            --test-integration-envelope tests/fixtures/integration-envelope-ddd.json \
+            --output "$forge_dir/candidate-verification.json"
+          python3 - "$forge_dir/candidate-verification.json" tests/fixtures/integration-envelope-ddd.json <<'PY'
+          import json, pathlib, sys
+          sys.path.insert(0, "scripts")
+          from promotion_tool import validate_candidate_verification_record
+          record = json.load(open(sys.argv[1], encoding="utf-8"))
+          assert record["testOnly"] is True
+          assert record["componentPolicy"]["issuerCommit"] == "ddd2838d0226eeaaca8f7a42ad82cba1a132bbfe"
+          assert record["envelopeSha256"] == "709a69fc8adc5c17da2b7e0d69d4871d4e62af4c3333ff53b96ea7c6c9452f5a"
+          validate_candidate_verification_record(record, pathlib.Path(sys.argv[2]).read_bytes(), require_live=False)
+          from tests.test_clean_room import CleanRoomReadmeTests
+          receipt = CleanRoomReadmeTests().receipt_from_exact_two_pin_record(record)
+          assert receipt["candidateVerificationSha256"]
+          assert receipt["preflight"]["conflictCount"] == 0
+          PY
+
+      - name: Prove no destination release-write workflow exists
+        run: python3 tests/test_workflow_policy.py
+
+  heartbeat-native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Exercise portable RFC3339 heartbeat parsing
+        run: |
+          scripts/check-drift-heartbeat.sh \
+            --fixture tests/fixtures/heartbeat-fresh.json \
+            --now 2026-08-28T04:00:00Z
+          if scripts/check-drift-heartbeat.sh \
+            --fixture tests/fixtures/heartbeat-stale.json \
+            --now 2026-08-28T04:00:00Z; then
+            echo 'stale fixture unexpectedly passed' >&2
+            exit 1
+          fi
+
+  heartbeat-minimal-container:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Exercise without GNU date
+        run: |
+          docker run --rm -v "$PWD:/repo:ro" -w /repo \
+            alpine:3.22.1@sha256:4bcff63911fcb4448bd4fdacec207030997caf25e9bea4045fa6c8c44de311d1 \
+            sh -lc 'apk add --no-cache bash jq >/dev/null && bash scripts/check-drift-heartbeat.sh --fixture tests/fixtures/heartbeat-fresh.json --now 2026-08-28T04:00:00Z'

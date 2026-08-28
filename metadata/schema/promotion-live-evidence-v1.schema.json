@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/effectstream/binaries/metadata/schema/promotion-live-evidence-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "capturedAt", "repository", "protectedRef", "workflowFile", "run", "stagingArtifact", "release", "releaseAssets"],
+  "properties": {
+    "schemaVersion": {"const": "promotion-live-evidence-v1"},
+    "capturedAt": {"type": "string", "format": "date-time"},
+    "repository": {
+      "const": {"fullName": "acedward/midnight-binary-forge", "id": 1349127482, "nodeId": "R_kgDOUGoNOg"}
+    },
+    "protectedRef": {
+      "type": "object", "additionalProperties": false,
+      "required": ["ref", "commitSha", "protected"],
+      "properties": {
+        "ref": {"const": "refs/heads/main"},
+        "commitSha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "protected": {"const": true}
+      }
+    },
+    "workflowFile": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "commitSha", "blobSha"],
+      "properties": {
+        "path": {"const": ".github/workflows/candidate.yml"},
+        "commitSha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "blobSha": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
+      }
+    },
+    "run": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "attempt", "repository", "workflowPath", "event", "headSha", "headRef", "status", "conclusion"],
+      "properties": {
+        "id": {"type": "integer", "minimum": 1}, "attempt": {"type": "integer", "minimum": 1},
+        "repository": {"const": "acedward/midnight-binary-forge"},
+        "workflowPath": {"const": ".github/workflows/candidate.yml"},
+        "event": {"const": "workflow_dispatch"},
+        "headSha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "headRef": {"const": "main"}, "status": {"const": "completed"}, "conclusion": {"const": "success"}
+      }
+    },
+    "stagingArtifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "runId", "runAttempt", "name", "archiveSha256", "expired", "expiresAt"],
+      "properties": {
+        "id": {"type": "integer", "minimum": 1}, "runId": {"type": "integer", "minimum": 1},
+        "runAttempt": {"type": "integer", "minimum": 1}, "name": {"type": "string", "minLength": 1},
+        "archiveSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "expired": {"const": false}, "expiresAt": {"type": "string", "format": "date-time"}
+      }
+    },
+    "release": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "nodeId", "repository", "tag", "targetCommitish", "url", "draft", "prerelease", "immutable"],
+      "properties": {
+        "id": {"type": "integer", "minimum": 1}, "nodeId": {"type": "string", "minLength": 1},
+        "repository": {"const": "acedward/midnight-binary-forge"}, "tag": {"type": "string", "minLength": 1},
+        "targetCommitish": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "url": {"type": "string", "pattern": "^https://github[.]com/acedward/midnight-binary-forge/releases/tag/[A-Za-z0-9._-]+$"},
+        "draft": {"const": false}, "prerelease": {"type": "boolean"}, "immutable": {"const": true}
+      }
+    },
+    "releaseAssets": {
+      "type": "array", "minItems": 1, "maxItems": 1000, "uniqueItems": true,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["name", "size", "sha256"],
+        "properties": {
+          "name": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+          "size": {"type": "integer", "minimum": 0, "maximum": 2147483647},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    }
+  }
+}
