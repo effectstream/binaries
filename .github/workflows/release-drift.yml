@@ -37,13 +37,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          permission_json="$(gh api repos/effectstream/binaries --jq '.permissions')"
-          jq -e '
-            .pull == true and
-            .push == false and
-            .maintain == false and
-            .admin == false
-          ' <<<"$permission_json" >/dev/null
+          viewer_permission="$(gh api graphql \
+            -f query='query { repository(owner: "effectstream", name: "binaries") { viewerPermission } }' \
+            --jq '.data.repository.viewerPermission')"
+          test "$viewer_permission" = READ
+          gh api repos/effectstream/binaries/releases/tags/0.3.120 --jq '.id' >/dev/null
 
       - name: Check the permanent development release
         shell: bash
@@ -70,4 +68,3 @@ jobs:
             echo
             echo 'On failure, `acedward` acknowledges this run by inspecting the retained summary, records the run ID/time, then follows the README enable → dispatch → fresh-success sequence.'
           } >>"$GITHUB_STEP_SUMMARY"
-
