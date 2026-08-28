@@ -604,6 +604,9 @@ class PromotionTests(unittest.TestCase):
 
     def test_component_policy_pin_rejects_pre_pin_unrelated_and_regressed_checkouts(self) -> None:
         pin = load_json(ROOT / "protocol/forge-component-policy-v1.json")
+        self.assertEqual(pin["testFixture"]["commitSha"], pin["minimumCommitSha"])
+        self.assertEqual({row["path"] for row in pin["testFixture"]["files"]}, {row["path"] for row in pin["files"]})
+        self.assertNotEqual(pin["policyRevisionCommitSha"], pin["minimumCommitSha"])
         _, verification = self.evidence(canonical_bytes(self.envelope([], self.fixture_proposal([]))))
         with tempfile.TemporaryDirectory() as temporary:
             checkout = Path(temporary) / "component"

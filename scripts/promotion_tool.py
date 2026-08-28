@@ -495,6 +495,11 @@ def validate_component_policy_checkout(record: dict[str, Any], checkout: Path) -
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
     expect(ancestry.returncode == 0, "candidate issuer does not descend from audited component-policy remediation")
+    revision_ancestry = subprocess.run(
+        ["git", "-C", os.fspath(checkout), "merge-base", "--is-ancestor", pin["policyRevisionCommitSha"], head],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    expect(revision_ancestry.returncode == 0, "candidate issuer does not descend from Phase-6 component-policy revision")
     for item in pin["files"]:
         path = checkout / item["path"]
         expect(path.is_file() and not path.is_symlink() and sha256_file(path) == item["sha256"], f"component-policy blob mismatch: {item['path']}")
