@@ -329,6 +329,7 @@ class CleanRoomReadmeTests(unittest.TestCase):
         # Execute the documented state choreography without exposing the planned row
         # through the stable index and without skipping a transition.
         base = current_catalog()
+        base_index_count = len(stable_index(base)["entries"])
         validate_repository_state(planned_catalog, stable_index(planned_catalog), base)
         uploading = copy.deepcopy(planned_catalog)
         row = next(item for item in uploading["entries"] if item["publicationState"] == "planned")
@@ -354,8 +355,8 @@ class CleanRoomReadmeTests(unittest.TestCase):
         published = copy.deepcopy(verified)
         next(item for item in published["entries"] if item["semanticId"] == row["semanticId"])["publicationState"] = "published"
         validate_repository_state(published, stable_index(published), verified, uploaded_snapshot)
-        self.assertEqual(len(stable_index(planned_catalog)["entries"]), 66)
-        self.assertEqual(len(stable_index(published)["entries"]), 67)
+        self.assertEqual(len(stable_index(planned_catalog)["entries"]), base_index_count)
+        self.assertEqual(len(stable_index(published)["entries"]), base_index_count + 1)
 
     def test_readme_extension_future_k_and_static_revision_gates_execute(self) -> None:
         catalog = current_catalog()

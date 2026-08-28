@@ -30,15 +30,18 @@ class CatalogTests(unittest.TestCase):
         cls.catalog = load_json(ROOT / "metadata/releases/0.3.120.json")
         cls.schema = ROOT / "metadata/schema/artifact-catalog-v1.schema.json"
 
-    def published_catalog(self) -> dict:
+    def legacy_catalog(self) -> dict:
         catalog = copy.deepcopy(self.catalog)
-        catalog["entries"] = [row for row in catalog["entries"] if row["publicationState"] == "published"]
+        catalog["entries"] = [
+            row for row in catalog["entries"]
+            if row["publicationState"] == "published" and row["source"]["method"] == "legacy-unknown"
+        ]
         return catalog
 
     def known_software_catalog(self, family: str) -> tuple[dict, dict]:
         contracts = load_json(ROOT / "metadata/contracts/families-v1.json")
         contract = next(row for row in contracts["softwareFamilies"] if row["family"] == family)
-        catalog = self.published_catalog()
+        catalog = self.legacy_catalog()
         if family == "midnight-node-toolkit":
             entry = next(row for row in catalog["entries"] if row["family"] == "indexer-standalone" and row["platform"] == "linux/amd64")
             entry["family"] = family
@@ -128,7 +131,7 @@ class CatalogTests(unittest.TestCase):
                 os_name="macos", arch="arm64", variant=None, k=None,
                 srs_generation=None, ledger_static=None, member_manifest=None,
             )
-        self.assertEqual(len(stable_index(changed)["entries"]), 65)
+        self.assertEqual(len(stable_index(changed)["entries"]), len(stable_index(self.catalog)["entries"]) - 1)
 
     def test_indexer_rc3_outer_and_inner_names_are_exactly_bound(self) -> None:
         contracts = load_json(ROOT / "metadata/contracts/families-v1.json")
@@ -475,7 +478,7 @@ class CatalogTests(unittest.TestCase):
         planned["entries"].sort(key=lambda row: row["semanticId"])
         validate_catalog(planned, self.schema)
         validate_repository_state(planned, stable_index(planned), previous)
-        self.assertEqual(len(stable_index(planned)["entries"]), 66)
+        self.assertEqual(len(stable_index(planned)["entries"]), len(stable_index(previous)["entries"]))
 
         for mutate in [
             lambda row: row["asset"].update({"id": 999}),
